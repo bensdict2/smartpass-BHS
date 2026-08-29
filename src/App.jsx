@@ -67,7 +67,7 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'smartpass-school';
 
-// Master Admin email configured for your account
+// Master Admin email configured for your school account
 const MASTER_ADMIN_EMAIL = "bmindajao@bertie.k12.nc.us";
 
 const DESTINATIONS = {
@@ -231,7 +231,7 @@ function TeacherAuthView({ auth, setView }) {
           <Lock size={32} />
         </div>
         <h2 className="text-2xl font-bold text-slate-800">Teacher Login</h2>
-        <p className="text-slate-500 mt-1 text-sm">Log in with email or school Google account</p>
+        <p className="text-slate-500 mt-1 text-sm">Log in with your school Google account or email</p>
       </div>
 
       <button
@@ -286,7 +286,7 @@ function TeacherAuthView({ auth, setView }) {
           disabled={loading}
           className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white font-bold rounded-xl transition-colors shadow-sm"
         >
-          {loading ? 'Processing...' : 'Login to Dashboard'}
+          {loading ? 'Processing...' : 'Login with Email'}
         </button>
       </form>
     </div>
