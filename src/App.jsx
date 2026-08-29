@@ -32,8 +32,6 @@ import {
   getAuth, 
   signInAnonymously, 
   signInWithCustomToken, 
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
   GoogleAuthProvider,
   signInWithPopup,
   signOut,
@@ -67,7 +65,6 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'smartpass-school';
 
-// Master Admin email configured for your school account
 const MASTER_ADMIN_EMAIL = "bmindajao@bertie.k12.nc.us";
 
 const DESTINATIONS = {
@@ -147,7 +144,7 @@ export default function App() {
       <main className="max-w-6xl mx-auto w-full p-6 flex-1">
         {view === 'home' && <HomeView setView={setView} />}
         {view === 'student' && <StudentPortalView db={db} appId={appId} />}
-        {view === 'teacher-auth' && <TeacherAuthView auth={auth} setView={setView} />}
+        {view === 'teacher-auth' && <TeacherAuthView auth={auth} db={db} appId={appId} setView={setView} />}
         {view === 'teacher-dashboard' && <TeacherDashboardView db={db} appId={appId} user={user} setView={setView} />}
       </main>
     </div>
@@ -182,44 +179,42 @@ function HomeView({ setView }) {
             <ShieldCheck size={48} />
           </div>
           <h3 className="text-xl font-bold text-slate-800">Teacher & Admin Portal</h3>
-          <p className="text-sm text-slate-500 mt-2 text-center">Log in to manage your classes, rosters, and passes.</p>
+          <p className="text-sm text-slate-500 mt-2 text-center">Log in with your school Google account.</p>
         </button>
       </div>
     </div>
   );
 }
 
-function TeacherAuthView({ auth, setView }) {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+function TeacherAuthView({ auth, db, appId, setView }) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
-
-    try {
-      await signInWithEmailAndPassword(auth, email, password);
-      setView('teacher-dashboard');
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleGoogleLogin = async () => {
     setError('');
     setLoading(true);
     try {
       const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
+      const result = await signInWithPopup(auth, provider);
+      const email = result.user.email?.toLowerCase();
+      const isMaster = email === MASTER_ADMIN_EMAIL.toLowerCase();
+
+      if (!isMaster) {
+        // Check if email is in pre-authorized teacher emails list
+        const allowedRef = doc(db, 'artifacts', appId, 'public', 'data', 'allowedTeachers', email);
+        const allowedSnap = await getDoc(allowedRef);
+        
+        if (!allowedSnap.exists()) {
+          await signOut(auth);
+          setError('Your school email is not authorized to access the teacher dashboard. Please contact the administrator.');
+          setLoading(false);
+          return;
+        }
+      }
+
       setView('teacher-dashboard');
     } catch (err) {
       setError(err.message);
-    } finally {
       setLoading(false);
     }
   };
@@ -231,14 +226,14 @@ function TeacherAuthView({ auth, setView }) {
           <Lock size={32} />
         </div>
         <h2 className="text-2xl font-bold text-slate-800">Teacher Login</h2>
-        <p className="text-slate-500 mt-1 text-sm">Log in with your school Google account or email</p>
+        <p className="text-slate-500 mt-1 text-sm">Secure login using your school Google account</p>
       </div>
 
       <button
         onClick={handleGoogleLogin}
         type="button"
         disabled={loading}
-        className="w-full mb-6 py-3.5 px-4 border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold rounded-xl transition-colors shadow-sm flex items-center justify-center space-x-2"
+        className="w-full py-4 px-4 border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold rounded-xl transition-colors shadow-sm flex items-center justify-center space-x-2"
       >
         <svg className="w-5 h-5" viewBox="0 0 24 24">
           <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -246,49 +241,10 @@ function TeacherAuthView({ auth, setView }) {
           <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
           <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
         </svg>
-        <span>Continue with Google</span>
+        <span>{loading ? 'Signing in...' : 'Continue with Google'}</span>
       </button>
 
-      <div className="flex items-center my-4">
-        <div className="flex-grow border-t border-slate-200"></div>
-        <span className="px-3 text-xs text-slate-400 font-semibold uppercase">Or email</span>
-        <div className="flex-grow border-t border-slate-200"></div>
-      </div>
-
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label className="block text-xs font-semibold text-slate-600 mb-1">Email</label>
-          <input 
-            type="email" 
-            value={email} 
-            onChange={e => setEmail(e.target.value)} 
-            placeholder="teacher@school.edu" 
-            required 
-            className="w-full p-3 border border-slate-300 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500" 
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-semibold text-slate-600 mb-1">Password</label>
-          <input 
-            type="password" 
-            value={password} 
-            onChange={e => setPassword(e.target.value)} 
-            placeholder="••••••••" 
-            required 
-            className="w-full p-3 border border-slate-300 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500" 
-          />
-        </div>
-
-        {error && <p className="text-red-500 text-xs font-semibold bg-red-50 p-3 rounded-xl">{error}</p>}
-
-        <button 
-          type="submit" 
-          disabled={loading}
-          className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white font-bold rounded-xl transition-colors shadow-sm"
-        >
-          {loading ? 'Processing...' : 'Login with Email'}
-        </button>
-      </form>
+      {error && <p className="text-red-500 text-xs font-semibold bg-red-50 p-3 rounded-xl mt-4 text-center">{error}</p>}
     </div>
   );
 }
@@ -524,29 +480,19 @@ function TeacherDashboardView({ db, appId, user, setView }) {
   const [periodPendingCounts, setPeriodPendingCounts] = useState({});
   const [roster, setRoster] = useState([]);
   const [allTeachers, setAllTeachers] = useState([]);
+  const [allowedTeachers, setAllowedTeachers] = useState([]);
   const [activeTab, setActiveTab] = useState('dashboard');
 
   const [newIdInput, setNewIdInput] = useState('');
   const [newNameInput, setNewNameInput] = useState('');
   const [newPeriodInput, setNewPeriodInput] = useState('Period 1');
   const [rosterError, setRosterError] = useState('');
-  
-  const [bulkInput, setBulkInput] = useState('');
-  const [bulkPeriodInput, setBulkPeriodInput] = useState('Period 1');
-  const [bulkMessage, setBulkMessage] = useState('');
-  const [isDragging, setIsDragging] = useState(false);
 
-  // New Teacher creation state (Admin only)
-  const [newTeacherEmail, setNewTeacherEmail] = useState('');
-  const [newTeacherPassword, setNewTeacherPassword] = useState('');
-  const [newTeacherName, setNewTeacherName] = useState('');
+  // Admin teacher email management state
+  const [newAllowedEmail, setNewAllowedEmail] = useState('');
   const [adminMessage, setAdminMessage] = useState('');
 
   const [showHelp, setShowHelp] = useState(false);
-  const [reportDate, setReportDate] = useState(() => new Date().toISOString().split('T')[0]);
-  const [historicalPasses, setHistoricalPasses] = useState([]);
-  const [historicalClassName, setHistoricalClassName] = useState('Period 1');
-  const [isPrintingHistorical, setIsPrintingHistorical] = useState(false);
   const [displayName, setDisplayName] = useState('');
 
   useEffect(() => {
@@ -582,6 +528,15 @@ function TeacherDashboardView({ db, appId, user, setView }) {
     const teachersRef = collection(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory');
     const unsubscribe = onSnapshot(teachersRef, (snapshot) => {
       setAllTeachers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => unsubscribe();
+  }, [db, appId]);
+
+  useEffect(() => {
+    if (!db) return;
+    const allowedRef = collection(db, 'artifacts', appId, 'public', 'data', 'allowedTeachers');
+    const unsubscribe = onSnapshot(allowedRef, (snapshot) => {
+      setAllowedTeachers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
     return () => unsubscribe();
   }, [db, appId]);
@@ -650,40 +605,29 @@ function TeacherDashboardView({ db, appId, user, setView }) {
     await deleteDoc(doc(db, 'artifacts', appId, 'users', teacherId, 'roster', studentId));
   };
 
-  const handleCreateTeacher = async (e) => {
+  const handleAddAllowedTeacher = async (e) => {
     e.preventDefault();
-    if (!newTeacherEmail || !newTeacherPassword || !newTeacherName) return;
+    if (!newAllowedEmail.trim()) return;
+    const cleanEmail = newAllowedEmail.trim().toLowerCase();
     setAdminMessage('');
 
     try {
-      const secondaryApp = initializeApp(firebaseConfig, "SecondaryApp");
-      const secondaryAuth = getAuth(secondaryApp);
-      const userCred = await createUserWithEmailAndPassword(secondaryAuth, newTeacherEmail, newTeacherPassword);
-      const newUid = userCred.user.uid;
-
-      const dirRef = doc(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory', newUid);
-      await setDoc(dirRef, {
-        email: newTeacherEmail,
-        displayName: newTeacherName,
-        updatedAt: Date.now()
-      });
-
-      setAdminMessage(`Successfully created account for ${newTeacherName}!`);
-      setNewTeacherEmail('');
-      setNewTeacherPassword('');
-      setNewTeacherName('');
+      const allowedRef = doc(db, 'artifacts', appId, 'public', 'data', 'allowedTeachers', cleanEmail);
+      await setDoc(allowedRef, { email: cleanEmail, addedAt: Date.now() });
+      setAdminMessage(`Successfully authorized ${cleanEmail}!`);
+      setNewAllowedEmail('');
     } catch (err) {
       setAdminMessage(`Error: ${err.message}`);
     }
   };
 
-  const handleDeleteTeacher = async (tId) => {
-    if (confirm("Are you sure you want to remove this teacher from the school hub?")) {
+  const handleRemoveAllowedTeacher = async (emailId) => {
+    if (confirm(`Remove authorization for ${emailId}?`)) {
       try {
-        const dirRef = doc(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory', tId);
-        await deleteDoc(dirRef);
+        const allowedRef = doc(db, 'artifacts', appId, 'public', 'data', 'allowedTeachers', emailId);
+        await deleteDoc(allowedRef);
       } catch (err) {
-        console.error("Error deleting teacher:", err);
+        console.error("Error removing authorized email:", err);
       }
     }
   };
@@ -714,7 +658,7 @@ function TeacherDashboardView({ db, appId, user, setView }) {
             <button onClick={() => setActiveTab('dashboard')} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'dashboard' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Live Passes</button>
             <button onClick={() => setActiveTab('roster')} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'roster' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Student Roster ({roster.length})</button>
             {isMasterAdmin && (
-              <button onClick={() => setActiveTab('teachers')} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'teachers' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Manage Teachers ({allTeachers.length})</button>
+              <button onClick={() => setActiveTab('teachers')} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'teachers' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Manage Teachers</button>
             )}
           </nav>
         </div>
@@ -734,49 +678,34 @@ function TeacherDashboardView({ db, appId, user, setView }) {
       {activeTab === 'teachers' && isMasterAdmin ? (
         <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-8 animate-in zoom-in">
           <div className="border-b border-slate-100 pb-6">
-            <h2 className="text-xl font-bold text-slate-800 flex items-center"><UserPlus size={20} className="mr-2 text-indigo-600"/> Add New Teacher Account</h2>
-            <p className="text-slate-500 text-sm mt-1">Create login credentials for a new teacher so they can manage their own class sessions.</p>
+            <h2 className="text-xl font-bold text-slate-800 flex items-center"><UserPlus size={20} className="mr-2 text-indigo-600"/> Authorize Teacher Email</h2>
+            <p className="text-slate-500 text-sm mt-1">Add a teacher's school email address here. When they log in with Google using that email, they will instantly access their teacher dashboard without needing to register.</p>
             
-            <form onSubmit={handleCreateTeacher} className="grid grid-cols-1 sm:grid-cols-4 gap-4 mt-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Teacher Name</label>
-                <input type="text" value={newTeacherName} onChange={e => setNewTeacherName(e.target.value)} placeholder="Mr. Smith" required className="w-full p-2.5 border border-slate-300 rounded-xl text-sm" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Email</label>
-                <input type="email" value={newTeacherEmail} onChange={e => setNewTeacherEmail(e.target.value)} placeholder="smith@school.edu" required className="w-full p-2.5 border border-slate-300 rounded-xl text-sm" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Password</label>
-                <input type="password" value={newTeacherPassword} onChange={e => setNewTeacherPassword(e.target.value)} placeholder="••••••••" required className="w-full p-2.5 border border-slate-300 rounded-xl text-sm" />
-              </div>
-              <div className="flex items-end">
-                <button type="submit" className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-sm shadow-sm">Create Teacher</button>
-              </div>
+            <form onSubmit={handleAddAllowedTeacher} className="flex gap-4 mt-4 max-w-xl">
+              <input type="email" value={newAllowedEmail} onChange={e => setNewAllowedEmail(e.target.value)} placeholder="teacher@school.edu" required className="flex-1 p-2.5 border border-slate-300 rounded-xl text-sm" />
+              <button type="submit" className="py-2.5 px-6 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-sm shadow-sm whitespace-nowrap">Authorize Email</button>
             </form>
             {adminMessage && <p className="text-xs font-bold text-emerald-600 mt-3">{adminMessage}</p>}
           </div>
 
           <div>
-            <h2 className="text-xl font-bold text-slate-800 mb-4">Existing School Teachers ({allTeachers.length})</h2>
+            <h2 className="text-xl font-bold text-slate-800 mb-4">Authorized Teacher Emails ({allowedTeachers.length})</h2>
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-200 text-xs font-semibold text-slate-400 uppercase">
-                  <th className="py-3 px-4">Display Name</th>
-                  <th className="py-3 px-4">Email</th>
+                  <th className="py-3 px-4">School Email</th>
                   <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm">
-                {allTeachers.map(t => (
+                {allowedTeachers.map(t => (
                   <tr key={t.id} className="hover:bg-slate-50">
-                    <td className="py-3 px-4 font-bold text-slate-800">{t.displayName || 'Unnamed'}</td>
-                    <td className="py-3 px-4 text-slate-600">{t.email}</td>
+                    <td className="py-3 px-4 font-bold text-slate-800">{t.email}</td>
                     <td className="py-3 px-4 text-right">
                       {t.email.toLowerCase() === MASTER_ADMIN_EMAIL.toLowerCase() ? (
                         <span className="text-xs font-semibold bg-amber-50 text-amber-700 px-2.5 py-1 rounded-lg">Master Admin</span>
                       ) : (
-                        <button onClick={() => handleDeleteTeacher(t.id)} className="px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg">Remove Teacher</button>
+                        <button onClick={() => handleRemoveAllowedTeacher(t.id)} className="px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg">Revoke Access</button>
                       )}
                     </td>
                   </tr>
@@ -941,7 +870,7 @@ function TeacherDashboardView({ db, appId, user, setView }) {
             <div className="space-y-4 text-slate-600 mb-6 text-sm">
               <p>Master Admin Email is configured to: <strong>{MASTER_ADMIN_EMAIL}</strong></p>
             </div>
-            <button type="button" onClick={() => setShowHelp(false)} className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-xl">Close</button>
+            <button type="button" onClick={() => setShowHelp(false)} className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-xl">Close unauthorized</button>
           </div>
         </div>
       )}
