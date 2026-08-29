@@ -14,7 +14,8 @@ import {
   Lock,
   Trash2,
   UserPlus,
-  Shield
+  Shield,
+  Search
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
@@ -112,7 +113,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans flex flex-col">
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm">
+      <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm print:hidden">
         <div className="flex items-center space-x-2 cursor-pointer" onClick={() => setView('home')}>
           <div className="bg-indigo-600 p-2 rounded-lg text-white">
             <ShieldCheck size={24} />
@@ -130,7 +131,7 @@ export default function App() {
         )}
       </header>
 
-      <main className="max-w-6xl mx-auto w-full p-6 flex-1">
+      <main className="max-w-6xl mx-auto w-full p-6 flex-1 print:p-0 print:max-w-none print:w-full">
         {view === 'home' && <HomeView setView={setView} />}
         {view === 'student' && <StudentPortalView db={db} appId={appId} />}
         {view === 'teacher-auth' && <TeacherAuthView auth={auth} db={db} appId={appId} setView={setView} />}
@@ -484,9 +485,28 @@ function TeacherDashboardView({ db, appId, user, setView }) {
   // History reporting state
   const [reportDate, setReportDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [historicalPeriod, setHistoricalPeriod] = useState('Period 1');
-  const [historicalPasses, setHistoricalPasses] = useState([]);
+  const [historicalPasses, setHistoricalPasses] = useState(null);
   const [isFetchingHistory, setIsFetchingHistory] = useState(false);
-  const [showHistoryModal, setShowHistoryModal] = useState(false);
+
+  useEffect(() => {
+    if (!teacherId || !db) return;
+    
+    // Register Teacher in public directory (so students can select them)
+    const registerTeacherDir = async () => {
+      const dirRef = doc(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory', teacherId);
+      await setDoc(dirRef, { email: user.email, updatedAt: Date.now() }, { merge: true });
+    };
+    registerTeacherDir();
+
+    // Fetch Authorized Teachers (if Admin)
+    if (isMasterAdmin) {
+      const allowedRef = collection(db, 'artifacts', appId, 'public', 'data', 'allowedTeachers');
+      const unsubAdmin = onSnapshot(allowedRef, (snap) => {
+        setAllowedTeachers(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      });
+      return () => unsubAdmin();
+    }
+  }, [teacherId, db, appId, user, isMasterAdmin]);
 
   useEffect(() => {
     if (!teacherId || !db) return;
@@ -581,6 +601,7 @@ function TeacherDashboardView({ db, appId, user, setView }) {
 
   const handleViewHistory = async () => {
     setIsFetchingHistory(true);
+    setHistoricalPasses(null);
     try {
       const [y, m, d] = reportDate.split('-').map(Number);
       const dateObj = new Date(y, m - 1, d);
@@ -593,7 +614,6 @@ function TeacherDashboardView({ db, appId, user, setView }) {
       list.sort((a, b) => a.timestamp - b.timestamp);
       
       setHistoricalPasses(list);
-      setShowHistoryModal(true);
     } catch (err) {
       console.error("Error fetching history:", err);
     } finally {
@@ -607,36 +627,39 @@ function TeacherDashboardView({ db, appId, user, setView }) {
 
   return (
     <div className="space-y-6 animate-in fade-in">
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between rounded-2xl shadow-sm">
-        <div className="flex items-center space-x-4">
-          <div className="bg-indigo-600 p-2 rounded-lg text-white"><ShieldCheck size={24} /></div>
-          <div>
-            <div className="flex items-center">
-                <input 
-                    type="text" 
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
-                    placeholder="Your Name (e.g. Mr. M)"
-                    className="text-xl font-bold text-slate-800 bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:outline-none focus:border-indigo-500 transition-colors p-0 mr-2 w-48"
-                />
-                {isMasterAdmin && <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center"><Shield size={10} className="mr-1"/> Admin</span>}
+      <header className="bg-white border-b border-slate-200 px-6 py-4 flex flex-col md:flex-row md:items-center justify-between rounded-2xl shadow-sm print:hidden">
+        <div className="flex flex-col md:flex-row md:items-center space-y-4 md:space-y-0 md:space-x-4">
+          <div className="flex items-center space-x-4">
+            <div className="bg-indigo-600 p-2 rounded-lg text-white"><ShieldCheck size={24} /></div>
+            <div>
+              <div className="flex items-center">
+                  <input 
+                      type="text" 
+                      value={displayName}
+                      onChange={(e) => setDisplayName(e.target.value)}
+                      placeholder="Your Name (e.g. Mr. M)"
+                      className="text-xl font-bold text-slate-800 bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:outline-none focus:border-indigo-500 transition-colors p-0 mr-2 w-48"
+                  />
+                  {isMasterAdmin && <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center"><Shield size={10} className="mr-1"/> Admin</span>}
+              </div>
+              <p className="text-xs text-slate-500">{user?.email}</p>
             </div>
-            <p className="text-xs text-slate-500">{user?.email}</p>
           </div>
-          <nav className="hidden md:flex space-x-1 bg-slate-100 p-1 rounded-xl ml-4">
-            <button onClick={() => setActiveTab('dashboard')} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'dashboard' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Live Passes</button>
-            <button onClick={() => setActiveTab('roster')} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'roster' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Student Roster ({roster.length})</button>
+          
+          {/* Main Navigation Tabs */}
+          <nav className="flex space-x-1 bg-slate-100 p-1 rounded-xl overflow-x-auto">
+            <button onClick={() => setActiveTab('dashboard')} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${activeTab === 'dashboard' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Live Passes</button>
+            <button onClick={() => setActiveTab('roster')} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${activeTab === 'roster' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Roster ({roster.length})</button>
+            <button onClick={() => setActiveTab('reports')} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${activeTab === 'reports' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Reports</button>
             {isMasterAdmin && (
-              <button onClick={() => setActiveTab('teachers')} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'teachers' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Manage Teachers</button>
+              <button onClick={() => setActiveTab('teachers')} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${activeTab === 'teachers' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Manage Teachers</button>
             )}
           </nav>
         </div>
-        <div className="flex items-center space-x-3">
+
+        <div className="flex items-center space-x-3 mt-4 md:mt-0">
           <button onClick={() => setShowHelp(true)} className="text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg text-sm font-bold flex items-center shadow-sm">
             <Info size={16} className="mr-1.5" /> Help
-          </button>
-          <button onClick={() => window.print()} className="hidden sm:flex text-slate-600 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg text-sm font-bold items-center shadow-sm">
-            <Printer size={16} className="mr-1.5" /> Print
           </button>
           <button onClick={() => { signOut(auth); setView('home'); }} className="text-red-600 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg text-sm font-bold flex items-center">
             <LogOut size={16} className="mr-1" /> Logout
@@ -644,8 +667,85 @@ function TeacherDashboardView({ db, appId, user, setView }) {
         </div>
       </header>
 
-      {activeTab === 'teachers' && isMasterAdmin ? (
+      {/* --- REPORTS TAB --- */}
+      {activeTab === 'reports' ? (
         <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-8 animate-in zoom-in">
+          <div className="border-b border-slate-100 pb-6 print:hidden">
+            <h2 className="text-xl font-bold text-slate-800 flex items-center"><Calendar size={20} className="mr-2 text-indigo-600"/> View & Print Past Sessions</h2>
+            <p className="text-slate-500 text-sm mt-1">Select a past date and class period to pull up the full hall pass log for that session.</p>
+            
+            <div className="flex flex-col sm:flex-row items-center space-y-3 sm:space-y-0 sm:space-x-3 mt-4">
+              <input 
+                type="date" 
+                value={reportDate} 
+                onChange={e => setReportDate(e.target.value)} 
+                max={new Date().toISOString().split('T')[0]}
+                className="p-2.5 border border-slate-300 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 bg-white font-medium w-full sm:w-auto"
+              />
+              <select 
+                value={historicalPeriod} 
+                onChange={e => setHistoricalPeriod(e.target.value)} 
+                className="p-2.5 border border-slate-300 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 bg-white font-bold w-full sm:w-auto"
+              >
+                {['Period 1', 'Period 2', 'Period 3', 'Period 4'].map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+              <button 
+                onClick={handleViewHistory} 
+                disabled={isFetchingHistory}
+                className="w-full sm:w-auto px-6 py-2.5 bg-slate-800 hover:bg-slate-900 disabled:bg-slate-300 text-white font-bold rounded-xl text-sm transition-colors shadow-sm flex items-center justify-center"
+              >
+                {isFetchingHistory ? 'Loading...' : <><Search size={16} className="mr-2"/> View Report</>}
+              </button>
+            </div>
+          </div>
+
+          {/* Historical Data Display (Printable) */}
+          {historicalPasses && (
+            <div className="print:block text-slate-900 animate-in fade-in">
+               <div className="flex justify-between items-center mb-6 print:hidden">
+                   <h3 className="text-lg font-bold text-slate-800">Results for {reportDate} ({historicalPeriod})</h3>
+                   <button onClick={() => window.print()} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl flex items-center font-bold text-sm shadow-sm transition-colors"><Printer size={16} className="mr-2"/> Print This Report</button>
+               </div>
+
+               {/* Print Only Header */}
+               <div className="hidden print:block text-center mb-6 border-b-2 border-slate-800 pb-4">
+                 <h1 className="text-2xl font-black mb-1">SmartPass Session Report</h1>
+                 <p className="text-slate-600 font-medium">Date: {reportDate} | Class: {historicalPeriod} | Teacher: {displayName || user?.email}</p>
+               </div>
+               
+               <table className="w-full text-left border-collapse">
+                  <thead>
+                     <tr className="border-b-2 border-slate-800 text-xs uppercase tracking-wider text-slate-500">
+                        <th className="py-3 px-2">Student</th>
+                        <th className="py-3 px-2">Destination</th>
+                        <th className="py-3 px-2">Status</th>
+                        <th className="py-3 px-2">Time Out</th>
+                        <th className="py-3 px-2">Time Returned</th>
+                     </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-sm">
+                     {historicalPasses.length === 0 ? (
+                        <tr><td colSpan="5" className="py-8 text-center text-slate-400 italic bg-slate-50 rounded-lg">No passes recorded for this session.</td></tr>
+                     ) : (
+                        historicalPasses.map(p => (
+                           <tr key={p.id} className="hover:bg-slate-50">
+                              <td className="py-3 px-2 font-bold">{p.studentName} <span className="block text-xs text-slate-400 font-mono font-normal">{p.studentId}</span></td>
+                              <td className="py-3 px-2">{DESTINATIONS[p.destination]?.label || p.destination}</td>
+                              <td className="py-3 px-2 capitalize font-semibold">{p.status}</td>
+                              <td className="py-3 px-2">{new Date(p.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
+                              <td className="py-3 px-2">{p.updatedAt && p.status === 'returned' ? new Date(p.updatedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'N/A'}</td>
+                           </tr>
+                        ))
+                     )}
+                  </tbody>
+               </table>
+            </div>
+          )}
+        </div>
+
+      /* --- MANAGE TEACHERS TAB (ADMIN ONLY) --- */
+      ) : activeTab === 'teachers' && isMasterAdmin ? (
+        <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-8 animate-in zoom-in print:hidden">
           <div className="border-b border-slate-100 pb-6">
             <h2 className="text-xl font-bold text-slate-800 flex items-center"><UserPlus size={20} className="mr-2 text-indigo-600"/> Authorize Teacher Email</h2>
             <p className="text-slate-500 text-sm mt-1">Add a teacher's school email address here. When they log in with Google using that email, they will instantly access their teacher dashboard.</p>
@@ -683,8 +783,10 @@ function TeacherDashboardView({ db, appId, user, setView }) {
             </table>
           </div>
         </div>
+
+      /* --- ROSTER TAB --- */
       ) : activeTab === 'roster' ? (
-        <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-6">
+        <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-6 print:hidden">
           <h2 className="text-xl font-bold text-slate-800">Manage Student Roster</h2>
           <form onSubmit={addStudentToRoster} className="space-y-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
@@ -732,8 +834,10 @@ function TeacherDashboardView({ db, appId, user, setView }) {
             </tbody>
           </table>
         </div>
+
+      /* --- LIVE PASSES DASHBOARD --- */
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-6 print:hidden">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="bg-indigo-600 text-white rounded-2xl p-6 flex flex-col justify-between shadow-sm">
               <div>
@@ -828,93 +932,12 @@ function TeacherDashboardView({ db, appId, user, setView }) {
               </div>
             </div>
           </div>
-
-          {/* PAST DATE REPORTS PANEL */}
-          <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4 mt-6 print:hidden">
-            <div className="flex items-center space-x-3">
-              <div className="bg-indigo-50 text-indigo-600 p-2.5 rounded-xl">
-                <Calendar size={20} />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-slate-800">Print Past Date Report</h3>
-                <p className="text-xs text-slate-500">Select any previous date and period to generate and print records.</p>
-              </div>
-            </div>
-            <div className="flex items-center space-x-3 w-full sm:w-auto">
-              <input 
-                type="date" 
-                value={reportDate} 
-                onChange={e => setReportDate(e.target.value)} 
-                max={new Date().toISOString().split('T')[0]}
-                className="p-2 border border-slate-300 rounded-xl text-xs outline-none bg-white font-medium"
-              />
-              <select 
-                value={historicalPeriod} 
-                onChange={e => setHistoricalPeriod(e.target.value)} 
-                className="p-2 border border-slate-300 rounded-xl text-xs outline-none bg-white font-bold"
-              >
-                {['Period 1', 'Period 2', 'Period 3', 'Period 4'].map(p => <option key={p} value={p}>{p}</option>)}
-              </select>
-              <button 
-                onClick={handleViewHistory} 
-                disabled={isFetchingHistory}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-900 disabled:bg-slate-300 text-white font-bold rounded-xl text-xs transition-colors shadow-sm whitespace-nowrap flex items-center"
-              >
-                {isFetchingHistory ? 'Loading...' : 'View & Print Report'}
-              </button>
-            </div>
-          </div>
         </div>
       )}
 
-      {showHistoryModal && (
-        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm print:bg-white print:p-0 print:absolute print:inset-0">
-          <div className="bg-white rounded-2xl p-8 max-w-3xl w-full shadow-xl relative print:shadow-none print:w-full print:max-w-none max-h-[90vh] overflow-y-auto print:overflow-visible print:h-auto">
-            <div className="flex justify-between items-center mb-6 print:hidden">
-               <h2 className="text-2xl font-bold text-slate-800 flex items-center"><Calendar size={24} className="text-indigo-600 mr-2"/> Past Session Report</h2>
-               <div className="flex space-x-2">
-                   <button onClick={() => window.print()} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl flex items-center font-bold text-sm shadow-sm transition-colors"><Printer size={16} className="mr-2"/> Print</button>
-                   <button onClick={() => setShowHistoryModal(false)} className="p-2 text-slate-400 hover:text-slate-600 transition-colors"><XCircle size={24}/></button>
-               </div>
-            </div>
-            
-            <div className="print:block text-slate-900">
-               <h1 className="text-2xl font-black text-center mb-1">SmartPass Session Report</h1>
-               <p className="text-center text-slate-600 font-medium mb-6 pb-6 border-b border-slate-200">Date: {reportDate} | Class: {historicalPeriod} | Teacher: {displayName || user?.email}</p>
-               
-               <table className="w-full text-left border-collapse">
-                  <thead>
-                     <tr className="border-b-2 border-slate-800 text-xs uppercase tracking-wider text-slate-500">
-                        <th className="py-3 px-2">Student</th>
-                        <th className="py-3 px-2">Destination</th>
-                        <th className="py-3 px-2">Status</th>
-                        <th className="py-3 px-2">Time Out</th>
-                        <th className="py-3 px-2">Time Returned</th>
-                     </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-sm">
-                     {historicalPasses.length === 0 ? (
-                        <tr><td colSpan="5" className="py-8 text-center text-slate-400 italic">No passes recorded for this session.</td></tr>
-                     ) : (
-                        historicalPasses.map(p => (
-                           <tr key={p.id}>
-                              <td className="py-3 px-2 font-bold">{p.studentName} <span className="block text-xs text-slate-400 font-mono font-normal">{p.studentId}</span></td>
-                              <td className="py-3 px-2">{DESTINATIONS[p.destination]?.label || p.destination}</td>
-                              <td className="py-3 px-2 capitalize font-semibold">{p.status}</td>
-                              <td className="py-3 px-2">{new Date(p.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
-                              <td className="py-3 px-2">{p.updatedAt && p.status === 'returned' ? new Date(p.updatedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'N/A'}</td>
-                           </tr>
-                        ))
-                     )}
-                  </tbody>
-               </table>
-            </div>
-          </div>
-        </div>
-      )}
-
+      {/* HELP OVERLAY */}
       {showHelp && (
-        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm print:hidden">
           <div className="bg-white rounded-2xl p-8 max-w-lg w-full shadow-xl relative">
             <button type="button" onClick={() => setShowHelp(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><XCircle size={24} /></button>
             <h2 className="text-2xl font-bold text-slate-800 mb-6 flex items-center"><Info size={28} className="text-indigo-600 mr-2" /> About SmartPass Hub</h2>
