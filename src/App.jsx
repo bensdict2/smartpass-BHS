@@ -22,13 +22,16 @@ import {
   Lock,
   Plus,
   Trash2,
-  AlertCircle
+  AlertCircle,
+  UserPlus,
+  Shield
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
 import { 
   getAuth, 
   signInAnonymously, 
+  signInWithCustomToken, 
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
@@ -47,8 +50,8 @@ import {
   getDocs 
 } from 'firebase/firestore';
 
-const firebaseConfig = {
-  apiKey: "AIzaSyB2UUnHo4iKkR9" + "eo5W3JryYaul5g6oIfMs",
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+  apiKey: "AIzaSyB2UUnHo4iKkR9eo5W3JryYaul5g6oIfMs",
   authDomain: "smartpass-dd6b4.firebaseapp.com",
   projectId: "smartpass-dd6b4",
   storageBucket: "smartpass-dd6b4.firebasestorage.app",
@@ -60,7 +63,10 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = 'smartpass-school';
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'smartpass-school';
+
+// Define your Master Admin email here
+const MASTER_ADMIN_EMAIL = "admin@school.edu";
 
 const DESTINATIONS = {
   'restroom': { label: 'Restroom', icon: '🚽' },
@@ -90,7 +96,11 @@ export default function App() {
   useEffect(() => {
     const initAuth = async () => {
       try {
-        await signInAnonymously(auth);
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
       } catch (err) {
         console.error('Auth error:', err);
       }
@@ -106,9 +116,8 @@ export default function App() {
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'sans-serif', backgroundColor: '#f8fafc' }}>
-        <h2 style={{ color: '#1e293b', fontSize: '24px', marginBottom: '8px' }}>Loading SmartPass...</h2>
-        <p style={{ color: '#64748b' }}>Connecting to secure database.</p>
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
       </div>
     );
   }
@@ -145,7 +154,7 @@ export default function App() {
 
 function HomeView({ setView }) {
   return (
-    <div className="flex flex-col items-center justify-center mt-16 space-y-8">
+    <div className="flex flex-col items-center justify-center mt-16 space-y-8 animate-in fade-in zoom-in duration-300">
       <div className="text-center space-y-2 max-w-lg">
         <h2 className="text-3xl font-extrabold text-slate-900">School Hall Pass System</h2>
         <p className="text-slate-500">Select your portal to get started.</p>
@@ -170,7 +179,7 @@ function HomeView({ setView }) {
           <div className="bg-indigo-50 text-indigo-600 p-4 rounded-full mb-4 group-hover:scale-110 transition-transform">
             <ShieldCheck size={48} />
           </div>
-          <h3 className="text-xl font-bold text-slate-800">Teacher Portal</h3>
+          <h3 className="text-xl font-bold text-slate-800">Teacher & Admin Portal</h3>
           <p className="text-sm text-slate-500 mt-2 text-center">Log in to manage your classes, rosters, and passes.</p>
         </button>
       </div>
@@ -179,7 +188,6 @@ function HomeView({ setView }) {
 }
 
 function TeacherAuthView({ auth, setView }) {
-  const [isRegister, setIsRegister] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -191,11 +199,7 @@ function TeacherAuthView({ auth, setView }) {
     setLoading(true);
 
     try {
-      if (isRegister) {
-        await createUserWithEmailAndPassword(auth, email, password);
-      } else {
-        await signInWithEmailAndPassword(auth, email, password);
-      }
+      await signInWithEmailAndPassword(auth, email, password);
       setView('teacher-dashboard');
     } catch (err) {
       setError(err.message);
@@ -205,18 +209,18 @@ function TeacherAuthView({ auth, setView }) {
   };
 
   return (
-    <div className="max-w-md mx-auto mt-12 bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
+    <div className="max-w-md mx-auto mt-12 bg-white p-8 rounded-2xl shadow-sm border border-slate-200 animate-in zoom-in">
       <div className="text-center mb-6">
         <div className="mx-auto bg-indigo-100 text-indigo-600 w-16 h-16 rounded-full flex items-center justify-center mb-4">
           <Lock size={32} />
         </div>
-        <h2 className="text-2xl font-bold text-slate-800">{isRegister ? 'Teacher Registration' : 'Teacher Login'}</h2>
-        <p className="text-slate-500 mt-1 text-sm">{isRegister ? 'Create your teacher account' : 'Log in to access your dashboard'}</p>
+        <h2 className="text-2xl font-bold text-slate-800">Teacher Login</h2>
+        <p className="text-slate-500 mt-1 text-sm">Log in to access your dashboard</p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="block text-xs font-semibold text-slate-600 mb-1">Teacher Email</label>
+          <label className="block text-xs font-semibold text-slate-600 mb-1">Email</label>
           <input 
             type="email" 
             value={email} 
@@ -245,19 +249,9 @@ function TeacherAuthView({ auth, setView }) {
           disabled={loading}
           className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white font-bold rounded-xl transition-colors shadow-sm"
         >
-          {loading ? 'Processing...' : (isRegister ? 'Register Account' : 'Login to Dashboard')}
+          {loading ? 'Processing...' : 'Login to Dashboard'}
         </button>
       </form>
-
-      <div className="text-center mt-6">
-        <button 
-          type="button"
-          onClick={() => setIsRegister(!isRegister)} 
-          className="text-xs text-indigo-600 hover:underline font-bold"
-        >
-          {isRegister ? 'Already have an account? Login here' : "Don't have an account? Register here"}
-        </button>
-      </div>
     </div>
   );
 }
@@ -375,7 +369,7 @@ function StudentPortalView({ db, appId }) {
   if (activePass) {
     const isWaiting = activePass.status === 'waiting';
     return (
-      <div className="max-w-md mx-auto mt-12 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden text-center">
+      <div className="max-w-md mx-auto mt-12 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden text-center animate-in zoom-in">
         <div className={`p-8 text-white ${isWaiting ? 'bg-amber-500' : 'bg-emerald-500'}`}>
           <h2 className="text-3xl font-bold mb-2">{isWaiting ? 'Waiting for Approval' : 'Pass Approved!'}</h2>
           <p className="text-white/80 font-medium text-lg">{isWaiting ? 'Keep this screen open.' : 'You may go to your destination.'}</p>
@@ -389,7 +383,7 @@ function StudentPortalView({ db, appId }) {
   }
 
   return (
-    <div className="max-w-md mx-auto mt-8 bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
+    <div className="max-w-md mx-auto mt-8 bg-white p-8 rounded-2xl shadow-sm border border-slate-200 animate-in zoom-in">
       {!selectedTeacherId ? (
         <div className="space-y-6">
           <div className="text-center">
@@ -398,7 +392,7 @@ function StudentPortalView({ db, appId }) {
           </div>
           <div className="space-y-2">
             {teachers.length === 0 ? (
-              <p className="text-center text-slate-400 py-6 text-sm">No teachers have registered yet. Ask your teacher to set up their account.</p>
+              <p className="text-center text-slate-400 py-6 text-sm">No teachers have registered yet.</p>
             ) : (
               teachers.map(t => (
                 <button
@@ -484,6 +478,8 @@ function StudentPortalView({ db, appId }) {
 
 function TeacherDashboardView({ db, appId, user, setView }) {
   const teacherId = user?.uid;
+  const isMasterAdmin = user?.email?.toLowerCase() === MASTER_ADMIN_EMAIL.toLowerCase();
+
   const [className, setClassName] = useState('Period 1');
   const sessionCode = getDailyPeriodCode(className, teacherId);
 
@@ -503,15 +499,19 @@ function TeacherDashboardView({ db, appId, user, setView }) {
   const [bulkMessage, setBulkMessage] = useState('');
   const [isDragging, setIsDragging] = useState(false);
 
-  const [showHelp, setShowHelp] = useState(false);
+  // New Teacher creation state (Admin only)
+  const [newTeacherEmail, setNewTeacherEmail] = useState('');
+  const [newTeacherPassword, setNewTeacherPassword] = useState('');
+  const [newTeacherName, setNewTeacherName] = useState('');
+  const [adminMessage, setAdminMessage] = useState('');
 
+  const [showHelp, setShowHelp] = useState(false);
   const [reportDate, setReportDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [historicalPasses, setHistoricalPasses] = useState([]);
   const [historicalClassName, setHistoricalClassName] = useState('Period 1');
   const [isPrintingHistorical, setIsPrintingHistorical] = useState(false);
   const [displayName, setDisplayName] = useState('');
 
-  // Fetch teacher's display name
   useEffect(() => {
     if (!teacherId || !db) return;
     const fetchInitialName = async () => {
@@ -526,7 +526,6 @@ function TeacherDashboardView({ db, appId, user, setView }) {
     fetchInitialName();
   }, [teacherId, db, appId, user]);
 
-  // Register teacher in public directory
   useEffect(() => {
     if (!teacherId || !db || !displayName) return;
     const registerTeacherDir = async () => {
@@ -537,12 +536,10 @@ function TeacherDashboardView({ db, appId, user, setView }) {
           updatedAt: Date.now() 
       }, { merge: true });
     };
-    
     const timeoutId = setTimeout(registerTeacherDir, 1000);
     return () => clearTimeout(timeoutId);
   }, [teacherId, db, appId, user, displayName]);
 
-  // Fetch all registered teachers for management
   useEffect(() => {
     if (!db) return;
     const teachersRef = collection(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory');
@@ -552,7 +549,6 @@ function TeacherDashboardView({ db, appId, user, setView }) {
     return () => unsubscribe();
   }, [db, appId]);
 
-  // Fetch roster
   useEffect(() => {
     if (!teacherId || !db) return;
     const rosterRef = collection(db, 'artifacts', appId, 'users', teacherId, 'roster');
@@ -617,6 +613,35 @@ function TeacherDashboardView({ db, appId, user, setView }) {
     await deleteDoc(doc(db, 'artifacts', appId, 'users', teacherId, 'roster', studentId));
   };
 
+  const handleCreateTeacher = async (e) => {
+    e.preventDefault();
+    if (!newTeacherEmail || !newTeacherPassword || !newTeacherName) return;
+    setAdminMessage('');
+
+    try {
+      // Create secondary Firebase Auth user without signing out current admin
+      const secondaryApp = initializeApp(firebaseConfig, "SecondaryApp");
+      const secondaryAuth = getAuth(secondaryApp);
+      const userCred = await createUserWithEmailAndPassword(secondaryAuth, newTeacherEmail, newTeacherPassword);
+      const newUid = userCred.user.uid;
+
+      // Add to public directory so students see them
+      const dirRef = doc(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory', newUid);
+      await setDoc(dirRef, {
+        email: newTeacherEmail,
+        displayName: newTeacherName,
+        updatedAt: Date.now()
+      });
+
+      setAdminMessage(`Successfully created account for ${newTeacherName}!`);
+      setNewTeacherEmail('');
+      setNewTeacherPassword('');
+      setNewTeacherName('');
+    } catch (err) {
+      setAdminMessage(`Error: ${err.message}`);
+    }
+  };
+
   const handleDeleteTeacher = async (tId) => {
     if (confirm("Are you sure you want to remove this teacher from the school hub?")) {
       try {
@@ -639,28 +664,19 @@ function TeacherDashboardView({ db, appId, user, setView }) {
     for (let line of lines) {
       line = line.trim();
       if (!line) continue;
-      
       const parts = line.split(/[,;\t]+/).map(p => p.trim());
       if (parts.length >= 2) {
         const studentId = parts[0];
         const name = parts[1];
-        
         let assignedPeriod = bulkPeriodInput;
         if (parts.length >= 3 && parts[2]) {
           const rawPeriod = parts[2];
-          if (rawPeriod.toLowerCase().includes('period')) {
-            assignedPeriod = rawPeriod;
-          } else {
-            assignedPeriod = `Period ${rawPeriod}`;
-          }
+          assignedPeriod = rawPeriod.toLowerCase().includes('period') ? rawPeriod : `Period ${rawPeriod}`;
         }
-
         const isDuplicate = roster.some(s => s.studentId === studentId);
         if (!isDuplicate && studentId && name) {
           await setDoc(doc(db, 'artifacts', appId, 'users', teacherId, 'roster', studentId), {
-            studentId: studentId,
-            name: name,
-            period: assignedPeriod
+            studentId, name, period: assignedPeriod
           });
           addedCount++;
         } else {
@@ -668,8 +684,7 @@ function TeacherDashboardView({ db, appId, user, setView }) {
         }
       }
     }
-
-    setBulkMessage(`Successfully imported ${addedCount} student(s). Skipped ${skippedCount} duplicate/invalid entries.`);
+    setBulkMessage(`Successfully imported ${addedCount} student(s). Skipped ${skippedCount}.`);
     setBulkInput('');
   };
 
@@ -677,72 +692,15 @@ function TeacherDashboardView({ db, appId, user, setView }) {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = async (event) => {
-      const text = event.target.result;
-      setBulkInput(text);
-      setBulkMessage(`Loaded file "${file.name}". Click "Import List" below to finish saving.`);
+      setBulkInput(event.target.result);
+      setBulkMessage(`Loaded file "${file.name}". Click "Import List" below.`);
     };
     reader.readAsText(file);
-  };
-
-  const handleFileUpload = (e) => {
-    const file = e.target.files[0];
-    processFile(file);
-  };
-
-  const handleDragOver = (e) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = (e) => {
-    e.preventDefault();
-    setIsDragging(false);
-  };
-
-  const handleDrop = (e) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const file = e.dataTransfer.files[0];
-    if (file) {
-      processFile(file);
-    }
-  };
-
-  const handlePrintHistoricalReport = async () => {
-    if (!db || !teacherId) return;
-    setIsPrintingHistorical(true);
-    
-    const [y, m, d] = reportDate.split('-').map(Number);
-    const dateObj = new Date(y, m - 1, d);
-    const dateStr = `${dateObj.getFullYear()}-${dateObj.getMonth() + 1}-${dateObj.getDate()}-${teacherId}-${historicalClassName}`;
-    let hash = 0;
-    for (let i = 0; i < dateStr.length; i++) {
-      hash = ((hash << 5) - hash) + dateStr.charCodeAt(i);
-      hash |= 0;
-    }
-    const historicalSessionCode = (Math.abs(hash % 9000) + 1000).toString();
-
-    try {
-      const passesRef = collection(db, 'artifacts', appId, 'users', teacherId, 'sessions', historicalSessionCode, 'passes');
-      const snapshot = await getDocs(passesRef);
-      const passesList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setHistoricalPasses(passesList);
-      
-      setTimeout(() => {
-        window.print();
-        setIsPrintingHistorical(false);
-      }, 300);
-    } catch (err) {
-      console.error("Error fetching historical report:", err);
-      setIsPrintingHistorical(false);
-    }
   };
 
   const waitingPasses = passes.filter(p => p.status === 'waiting').sort((a, b) => b.timestamp - a.timestamp);
   const activePasses = passes.filter(p => p.status === 'approved').sort((a, b) => b.timestamp - a.timestamp);
   const returnedPasses = passes.filter(p => p.status === 'returned').sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-
-  const formatTime = (ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   return (
     <div className="space-y-6 animate-in fade-in">
@@ -757,24 +715,25 @@ function TeacherDashboardView({ db, appId, user, setView }) {
                     onChange={(e) => setDisplayName(e.target.value)}
                     placeholder="Your Name (e.g. Mr. Smith)"
                     className="text-xl font-bold text-slate-800 bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:outline-none focus:border-indigo-500 transition-colors p-0 mr-2 w-48"
-                    title="Edit how your name appears to students"
                 />
-                <span className="text-slate-400 text-xs cursor-help" title="Students will see this name">✏️</span>
+                {isMasterAdmin && <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center"><Shield size={10} className="mr-1"/> Admin</span>}
             </div>
             <p className="text-xs text-slate-500">{user?.email}</p>
           </div>
           <nav className="hidden md:flex space-x-1 bg-slate-100 p-1 rounded-xl ml-4">
             <button onClick={() => setActiveTab('dashboard')} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'dashboard' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Live Passes</button>
             <button onClick={() => setActiveTab('roster')} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'roster' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Student Roster ({roster.length})</button>
-            <button onClick={() => setActiveTab('teachers')} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'teachers' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Manage Teachers ({allTeachers.length})</button>
+            {isMasterAdmin && (
+              <button onClick={() => setActiveTab('teachers')} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'teachers' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Manage Teachers ({allTeachers.length})</button>
+            )}
           </nav>
         </div>
         <div className="flex items-center space-x-3">
           <button onClick={() => setShowHelp(true)} className="text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg text-sm font-bold flex items-center shadow-sm">
-            <Info size={16} className="mr-1.5" /> Help & About
+            <Info size={16} className="mr-1.5" /> Help
           </button>
           <button onClick={() => window.print()} className="hidden sm:flex text-slate-600 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg text-sm font-bold items-center shadow-sm">
-            <Printer size={16} className="mr-1.5" /> Print Report
+            <Printer size={16} className="mr-1.5" /> Print
           </button>
           <button onClick={() => { signOut(auth); setView('home'); }} className="text-red-600 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg text-sm font-bold flex items-center">
             <LogOut size={16} className="mr-1" /> Logout
@@ -782,46 +741,64 @@ function TeacherDashboardView({ db, appId, user, setView }) {
         </div>
       </header>
 
-      {activeTab === 'teachers' ? (
-        <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-6">
-          <div>
-            <h2 className="text-xl font-bold text-slate-800">Manage Registered Teachers</h2>
-            <p className="text-slate-500 text-sm mt-1">Teachers listed here will appear in the student portal dropdown. You can remove any teacher instantly.</p>
+      {activeTab === 'teachers' && isMasterAdmin ? (
+        <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-8 animate-in zoom-in">
+          <div className="border-b border-slate-100 pb-6">
+            <h2 className="text-xl font-bold text-slate-800 flex items-center"><UserPlus size={20} className="mr-2 text-indigo-600"/> Add New Teacher Account</h2>
+            <p className="text-slate-500 text-sm mt-1">Create login credentials for a new teacher so they can manage their own class sessions.</p>
+            
+            <form onSubmit={handleCreateTeacher} className="grid grid-cols-1 sm:grid-cols-4 gap-4 mt-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Teacher Name</label>
+                <input type="text" value={newTeacherName} onChange={e => setNewTeacherName(e.target.value)} placeholder="Mr. Smith" required className="w-full p-2.5 border border-slate-300 rounded-xl text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Email</label>
+                <input type="email" value={newTeacherEmail} onChange={e => setNewTeacherEmail(e.target.value)} placeholder="smith@school.edu" required className="w-full p-2.5 border border-slate-300 rounded-xl text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Password</label>
+                <input type="password" value={newTeacherPassword} onChange={e => setNewTeacherPassword(e.target.value)} placeholder="••••••••" required className="w-full p-2.5 border border-slate-300 rounded-xl text-sm" />
+              </div>
+              <div className="flex items-end">
+                <button type="submit" className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-sm shadow-sm">Create Teacher</button>
+              </div>
+            </form>
+            {adminMessage && <p className="text-xs font-bold text-emerald-600 mt-3">{adminMessage}</p>}
           </div>
 
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-slate-200 text-xs font-semibold text-slate-400 uppercase">
-                <th className="py-3 px-4">Display Name</th>
-                <th className="py-3 px-4">Email</th>
-                <th className="py-3 px-4 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-sm">
-              {allTeachers.map(t => (
-                <tr key={t.id} className="hover:bg-slate-50">
-                  <td className="py-3 px-4 font-bold text-slate-800">{t.displayName || 'Unnamed'}</td>
-                  <td className="py-3 px-4 text-slate-600">{t.email}</td>
-                  <td className="py-3 px-4 text-right">
-                    {t.id === teacherId ? (
-                      <span className="text-xs font-semibold bg-indigo-50 text-indigo-600 px-2 py-1 rounded-lg">Current User</span>
-                    ) : (
-                      <button onClick={() => handleDeleteTeacher(t.id)} className="px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg">Remove Teacher</button>
-                    )}
-                  </td>
+          <div>
+            <h2 className="text-xl font-bold text-slate-800 mb-4">Existing School Teachers ({allTeachers.length})</h2>
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-slate-200 text-xs font-semibold text-slate-400 uppercase">
+                  <th className="py-3 px-4">Display Name</th>
+                  <th className="py-3 px-4">Email</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-sm">
+                {allTeachers.map(t => (
+                  <tr key={t.id} className="hover:bg-slate-50">
+                    <td className="py-3 px-4 font-bold text-slate-800">{t.displayName || 'Unnamed'}</td>
+                    <td className="py-3 px-4 text-slate-600">{t.email}</td>
+                    <td className="py-3 px-4 text-right">
+                      {t.email.toLowerCase() === MASTER_ADMIN_EMAIL.toLowerCase() ? (
+                        <span className="text-xs font-semibold bg-amber-50 text-amber-700 px-2.5 py-1 rounded-lg">Master Admin</span>
+                      ) : (
+                        <button onClick={() => handleDeleteTeacher(t.id)} className="px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg">Remove Teacher</button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       ) : activeTab === 'roster' ? (
-        <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-6 print:hidden">
-          <div>
-            <h2 className="text-xl font-bold text-slate-800">Manage Student Roster & ID Numbers</h2>
-            <p className="text-slate-500 text-sm mt-1">Add student IDs individually, paste lists, or drag and drop a CSV file below.</p>
-          </div>
+        <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-6">
+          <h2 className="text-xl font-bold text-slate-800">Manage Student Roster</h2>
           <form onSubmit={addStudentToRoster} className="space-y-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
-            <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Add Single Student</h3>
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Student ID</label>
@@ -842,50 +819,6 @@ function TeacherDashboardView({ db, appId, user, setView }) {
               </div>
             </div>
             {rosterError && <p className="text-red-500 text-xs font-semibold">{rosterError}</p>}
-          </form>
-
-          <form onSubmit={handleBulkImport} className="space-y-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-              <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center">
-                <Upload size={14} className="mr-1.5 text-indigo-600" /> Bulk Import / Drag & Drop CSV
-              </h3>
-              <div className="flex items-center space-x-3 w-full sm:w-auto">
-                <span className="text-xs text-slate-500">Default period if CSV lacks it:</span>
-                <select value={bulkPeriodInput} onChange={e => setBulkPeriodInput(e.target.value)} className="p-1.5 border border-slate-300 rounded-lg text-xs outline-none bg-white font-bold">
-                  {['Period 1', 'Period 2', 'Period 3', 'Period 4'].map(p => <option key={p} value={p}>{p}</option>)}
-                </select>
-              </div>
-            </div>
-
-            <div 
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-              className={`border-2 border-dashed rounded-xl p-6 text-center transition-all ${isDragging ? 'border-indigo-500 bg-indigo-50/50' : 'border-slate-300 bg-white hover:border-indigo-400'}`}
-            >
-              <div className="flex flex-col items-center justify-center space-y-2">
-                <div className="bg-indigo-50 text-indigo-600 p-3 rounded-full">
-                  <FileSpreadsheet size={24} />
-                </div>
-                <p className="text-xs font-bold text-slate-700">Drag & drop your CSV file here, or <label className="text-indigo-600 hover:underline cursor-pointer">browse <input type="file" accept=".csv,.txt" onChange={handleFileUpload} className="hidden" /></label></p>
-                <p className="text-[11px] text-slate-400">Supports .csv files (Format: Student ID, Student Name, [Period])</p>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs text-slate-500 mb-1">Or paste student list below:</label>
-              <textarea 
-                value={bulkInput} 
-                onChange={e => setBulkInput(e.target.value)} 
-                placeholder="1001, John Smith, Period 1&#10;1002, Sarah Connor, Period 2&#10;1003, Michael Jordan" 
-                rows={3}
-                className="w-full p-3 border border-slate-300 rounded-xl text-xs font-mono outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
-              ></textarea>
-            </div>
-            <div className="flex justify-between items-center">
-              {bulkMessage ? <span className="text-xs font-bold text-emerald-600">{bulkMessage}</span> : <span></span>}
-              <button type="submit" disabled={!bulkInput.trim()} className="px-6 py-2 bg-slate-800 hover:bg-slate-900 disabled:bg-slate-300 text-white font-bold rounded-xl text-xs transition-colors shadow-sm">Import List</button>
-            </div>
           </form>
 
           <table className="w-full text-left border-collapse">
@@ -912,7 +845,7 @@ function TeacherDashboardView({ db, appId, user, setView }) {
           </table>
         </div>
       ) : (
-        <div className="space-y-6 print:hidden">
+        <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="bg-indigo-600 text-white rounded-2xl p-6 flex flex-col justify-between shadow-sm">
               <div>
@@ -1007,80 +940,8 @@ function TeacherDashboardView({ db, appId, user, setView }) {
               </div>
             </div>
           </div>
-
-          <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4 mt-6">
-            <div className="flex items-center space-x-3">
-                <div className="bg-indigo-50 text-indigo-600 p-2.5 rounded-xl">
-                    <Calendar size={20} />
-                </div>
-                <div>
-                    <h3 className="text-sm font-bold text-slate-800">Print Past Date Report</h3>
-                    <p className="text-xs text-slate-500">Select any previous date and period to generate and print records.</p>
-                </div>
-            </div>
-            <div className="flex items-center space-x-3 w-full sm:w-auto">
-                <input 
-                    type="date" 
-                    value={reportDate} 
-                    onChange={e => setReportDate(e.target.value)} 
-                    className="p-2 border border-slate-300 rounded-xl text-xs outline-none bg-white font-medium"
-                />
-                <select 
-                    value={historicalClassName} 
-                    onChange={e => setHistoricalClassName(e.target.value)} 
-                    className="p-2 border border-slate-300 rounded-xl text-xs outline-none bg-white font-bold"
-                >
-                    {['Period 1', 'Period 2', 'Period 3', 'Period 4'].map(p => <option key={p} value={p}>{p}</option>)}
-                </select>
-                <button 
-                    onClick={handlePrintHistoricalReport} 
-                    disabled={isPrintingHistorical}
-                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white font-bold rounded-xl text-xs transition-colors shadow-sm whitespace-nowrap flex items-center"
-                >
-                    <Printer size={14} className="mr-1.5" /> {isPrintingHistorical ? 'Loading...' : 'Print Past Report'}
-                </button>
-            </div>
-          </div>
         </div>
       )}
-
-      <div className="hidden print:block font-sans text-black">
-          <div className="text-center border-b-2 border-slate-800 pb-4 mb-6">
-              <h1 className="text-2xl font-black tracking-tight">SmartPass Daily Activity Report</h1>
-              <p className="text-sm font-bold mt-1">
-                  Class Session: {isPrintingHistorical ? historicalClassName : className} | Date: {isPrintingHistorical ? reportDate : new Date().toLocaleDateString()}
-              </p>
-          </div>
-
-          <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                  <tr className="border-b-2 border-slate-800 uppercase">
-                      <th className="py-2 px-2">Student Name</th>
-                      <th className="py-2 px-2">Student ID</th>
-                      <th className="py-2 px-2">Destination</th>
-                      <th className="py-2 px-2">Status</th>
-                      <th className="py-2 px-2">Requested At</th>
-                      <th className="py-2 px-2">Returned At</th>
-                  </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-300">
-                  {((isPrintingHistorical ? historicalPasses : passes).length === 0) ? (
-                      <tr><td colSpan="6" className="py-6 text-center text-slate-500">No pass activity recorded for this session.</td></tr>
-                  ) : (
-                      (isPrintingHistorical ? historicalPasses : passes).map(pass => (
-                          <tr key={pass.id}>
-                              <td className="py-2 px-2 font-bold">{pass.studentName}</td>
-                              <td className="py-2 px-2 font-mono">{pass.studentId || 'N/A'}</td>
-                              <td className="py-2 px-2">{DESTINATIONS[pass.destination]?.label || pass.destination}</td>
-                              <td className="py-2 px-2 capitalize font-semibold">{pass.status}</td>
-                              <td className="py-2 px-2">{new Date(pass.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
-                              <td className="py-2 px-2">{pass.updatedAt && pass.status === 'returned' ? new Date(pass.updatedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'N/A'}</td>
-                          </tr>
-                      ))
-                  )}
-              </tbody>
-          </table>
-      </div>
 
       {showHelp && (
         <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
@@ -1088,8 +949,7 @@ function TeacherDashboardView({ db, appId, user, setView }) {
             <button type="button" onClick={() => setShowHelp(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"><XCircle size={24} /></button>
             <h2 className="text-2xl font-bold text-slate-800 mb-6 flex items-center"><Info size={28} className="text-indigo-600 mr-2" /> About SmartPass Hub</h2>
             <div className="space-y-4 text-slate-600 mb-6 text-sm">
-              <p>Multiple teachers can log in with their own accounts to manage their independent rosters and passes on a single URL.</p>
-              <p>Developed by <strong>Mr. M</strong> | Contact: <a href="mailto:ben@bymindajao.net" className="text-indigo-600 underline">ben@bymindajao.net</a></p>
+              <p>Master Admin Email is configured to: <strong>{MASTER_ADMIN_EMAIL}</strong></p>
             </div>
             <button type="button" onClick={() => setShowHelp(false)} className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-xl">Close</button>
           </div>
