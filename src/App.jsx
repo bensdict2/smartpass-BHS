@@ -15,7 +15,9 @@ import {
   Trash2,
   UserPlus,
   Shield,
-  Search
+  Search,
+  Upload,
+  FileSpreadsheet
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
@@ -476,6 +478,11 @@ function TeacherDashboardView({ db, appId, user, setView }) {
   const [newPeriodInput, setNewPeriodInput] = useState('Period 1');
   const [rosterError, setRosterError] = useState('');
 
+  const [bulkInput, setBulkInput] = useState('');
+  const [bulkPeriodInput, setBulkPeriodInput] = useState('Period 1');
+  const [bulkMessage, setBulkMessage] = useState('');
+  const [isDragging, setIsDragging] = useState(false);
+
   const [newAllowedEmail, setNewAllowedEmail] = useState('');
   const [adminMessage, setAdminMessage] = useState('');
 
@@ -570,6 +577,86 @@ function TeacherDashboardView({ db, appId, user, setView }) {
 
   const deleteStudentFromRoster = async (studentId) => {
     await deleteDoc(doc(db, 'artifacts', appId, 'users', teacherId, 'roster', studentId));
+  };
+
+  const handleBulkImport = async (e) => {
+    if (e) e.preventDefault();
+    if (!bulkInput.trim()) return;
+
+    const lines = bulkInput.split('\n');
+    let addedCount = 0;
+    let skippedCount = 0;
+
+    for (let line of lines) {
+        line = line.trim();
+        if (!line) continue;
+        
+        // Split by comma, tab, or semicolon for spreadsheet pasting
+        const parts = line.split(/[,;\t]+/).map(p => p.trim());
+        if (parts.length >= 2) {
+            const studentId = parts[0];
+            const name = parts[1];
+            
+            let assignedPeriod = bulkPeriodInput;
+            if (parts.length >= 3 && parts[2]) {
+                const rawPeriod = parts[2];
+                if (rawPeriod.toLowerCase().includes('period')) {
+                    assignedPeriod = rawPeriod;
+                } else {
+                    assignedPeriod = `Period ${rawPeriod}`;
+                }
+            }
+
+            const isDuplicate = roster.some(s => s.studentId === studentId);
+            if (!isDuplicate && studentId && name) {
+                const studentRef = doc(db, 'artifacts', appId, 'users', teacherId, 'roster', studentId);
+                await setDoc(studentRef, {
+                    studentId: studentId,
+                    name: name,
+                    period: assignedPeriod
+                });
+                addedCount++;
+            } else {
+                skippedCount++;
+            }
+        }
+    }
+
+    setBulkMessage(`Successfully imported ${addedCount} student(s). Skipped ${skippedCount} entries.`);
+    setBulkInput('');
+  };
+
+  const processFile = (file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+        const text = event.target.result;
+        setBulkInput(text);
+        setBulkMessage(`Loaded file "${file.name}". Click "Import List" below to finish saving.`);
+    };
+    reader.readAsText(file);
+  };
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    processFile(file);
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) processFile(file);
   };
 
   const handleAddAllowedTeacher = async (e) => {
@@ -787,8 +874,13 @@ function TeacherDashboardView({ db, appId, user, setView }) {
       /* --- ROSTER TAB --- */
       ) : activeTab === 'roster' ? (
         <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-6 print:hidden">
-          <h2 className="text-xl font-bold text-slate-800">Manage Student Roster</h2>
+          <div>
+            <h2 className="text-xl font-bold text-slate-800">Manage Student Roster</h2>
+            <p className="text-slate-500 text-sm mt-1">Add students individually, copy & paste lists, or drag and drop a CSV file below.</p>
+          </div>
+          
           <form onSubmit={addStudentToRoster} className="space-y-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
+            <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Add Single Student</h3>
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Student ID</label>
@@ -809,6 +901,48 @@ function TeacherDashboardView({ db, appId, user, setView }) {
               </div>
             </div>
             {rosterError && <p className="text-red-500 text-xs font-semibold">{rosterError}</p>}
+          </form>
+
+          <form onSubmit={handleBulkImport} className="space-y-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+              <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center"><Upload size={14} className="mr-1.5 text-indigo-600"/> Bulk Import (CSV / Paste)</h3>
+              <div className="flex items-center space-x-3 text-xs">
+                <span className="text-slate-500">Default period (if missing):</span>
+                <select value={bulkPeriodInput} onChange={e => setBulkPeriodInput(e.target.value)} className="p-1.5 border border-slate-300 rounded-lg bg-white font-bold outline-none">
+                  {['Period 1', 'Period 2', 'Period 3', 'Period 4'].map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div 
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                className={`border-2 border-dashed rounded-xl p-6 text-center transition-all ${isDragging ? 'border-indigo-500 bg-indigo-50/50' : 'border-slate-300 bg-white hover:border-indigo-400'}`}
+            >
+                <div className="flex flex-col items-center justify-center space-y-2">
+                    <div className="bg-indigo-50 text-indigo-600 p-3 rounded-full">
+                        <FileSpreadsheet size={24} />
+                    </div>
+                    <p className="text-xs font-bold text-slate-700">Drag & drop your CSV file here, or <label className="text-indigo-600 hover:underline cursor-pointer">browse <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" /></label></p>
+                    <p className="text-[11px] text-slate-400">Supports .csv (Format: Student ID, Student Name, [Period])</p>
+                </div>
+            </div>
+
+            <div>
+              <textarea 
+                  value={bulkInput} 
+                  onChange={e => setBulkInput(e.target.value)} 
+                  placeholder="Or paste student list here...&#10;1001, John Smith, Period 1&#10;1002, Sarah Connor, Period 2" 
+                  rows={3}
+                  className="w-full p-3 border border-slate-300 rounded-xl text-xs font-mono outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+              ></textarea>
+            </div>
+
+            <div className="flex justify-between items-center">
+                <span className="text-xs font-bold text-emerald-600">{bulkMessage}</span>
+                <button type="submit" className="px-6 py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl text-xs shadow-sm transition-colors">Import List</button>
+            </div>
           </form>
 
           <table className="w-full text-left border-collapse">
