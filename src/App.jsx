@@ -66,9 +66,8 @@ const DESTINATIONS = {
   'other': { label: 'Other', icon: '📍' },
 };
 
-const getDailyPeriodCode = (periodName, teacherId) => {
-  const today = new Date();
-  const dateStr = `${today.getFullYear()}-${today.getMonth() + 1}-${today.getDate()}-${teacherId}-${periodName}`;
+const getDailyPeriodCode = (periodName, teacherId, targetDate = new Date()) => {
+  const dateStr = `${targetDate.getFullYear()}-${targetDate.getMonth() + 1}-${targetDate.getDate()}-${teacherId}-${periodName}`;
   let hash = 0;
   for (let i = 0; i < dateStr.length; i++) {
     hash = ((hash << 5) - hash) + dateStr.charCodeAt(i);
@@ -482,42 +481,12 @@ function TeacherDashboardView({ db, appId, user, setView }) {
   const [showHelp, setShowHelp] = useState(false);
   const [displayName, setDisplayName] = useState('');
 
-  useEffect(() => {
-    if (!teacherId || !db) return;
-    const fetchInitialName = async () => {
-      const dirRef = doc(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory', teacherId);
-      const snap = await getDoc(dirRef);
-      if (snap.exists() && snap.data().displayName) {
-          setDisplayName(snap.data().displayName);
-      } else if (user?.email) {
-          setDisplayName(user.email.split('@')[0]);
-      }
-    };
-    fetchInitialName();
-  }, [teacherId, db, appId, user]);
-
-  useEffect(() => {
-    if (!teacherId || !db || !displayName) return;
-    const registerTeacherDir = async () => {
-      const dirRef = doc(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory', teacherId);
-      await setDoc(dirRef, { 
-          email: user.email || 'Teacher', 
-          displayName: displayName,
-          updatedAt: Date.now() 
-      }, { merge: true });
-    };
-    const timeoutId = setTimeout(registerTeacherDir, 1000);
-    return () => clearTimeout(timeoutId);
-  }, [teacherId, db, appId, user, displayName]);
-
-  useEffect(() => {
-    if (!db) return;
-    const allowedRef = collection(db, 'artifacts', appId, 'public', 'data', 'allowedTeachers');
-    const unsubscribe = onSnapshot(allowedRef, (snapshot) => {
-      setAllowedTeachers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
-    return () => unsubscribe();
-  }, [db, appId]);
+  // History reporting state
+  const [reportDate, setReportDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [historicalPeriod, setHistoricalPeriod] = useState('Period 1');
+  const [historicalPasses, setHistoricalPasses] = useState([]);
+  const [isFetchingHistory, setIsFetchingHistory] = useState(false);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
 
   useEffect(() => {
     if (!teacherId || !db) return;
@@ -607,6 +576,28 @@ function TeacherDashboardView({ db, appId, user, setView }) {
       } catch (err) {
         console.error("Error removing authorized email:", err);
       }
+    }
+  };
+
+  const handleViewHistory = async () => {
+    setIsFetchingHistory(true);
+    try {
+      const [y, m, d] = reportDate.split('-').map(Number);
+      const dateObj = new Date(y, m - 1, d);
+      const histCode = getDailyPeriodCode(historicalPeriod, teacherId, dateObj);
+      
+      const passesRef = collection(db, 'artifacts', appId, 'users', teacherId, 'sessions', histCode, 'passes');
+      const snap = await getDocs(passesRef);
+      
+      const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      list.sort((a, b) => a.timestamp - b.timestamp);
+      
+      setHistoricalPasses(list);
+      setShowHistoryModal(true);
+    } catch (err) {
+      console.error("Error fetching history:", err);
+    } finally {
+      setIsFetchingHistory(false);
     }
   };
 
@@ -835,6 +826,88 @@ function TeacherDashboardView({ db, appId, user, setView }) {
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+
+          {/* PAST DATE REPORTS PANEL */}
+          <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4 mt-6 print:hidden">
+            <div className="flex items-center space-x-3">
+              <div className="bg-indigo-50 text-indigo-600 p-2.5 rounded-xl">
+                <Calendar size={20} />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-800">Print Past Date Report</h3>
+                <p className="text-xs text-slate-500">Select any previous date and period to generate and print records.</p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-3 w-full sm:w-auto">
+              <input 
+                type="date" 
+                value={reportDate} 
+                onChange={e => setReportDate(e.target.value)} 
+                max={new Date().toISOString().split('T')[0]}
+                className="p-2 border border-slate-300 rounded-xl text-xs outline-none bg-white font-medium"
+              />
+              <select 
+                value={historicalPeriod} 
+                onChange={e => setHistoricalPeriod(e.target.value)} 
+                className="p-2 border border-slate-300 rounded-xl text-xs outline-none bg-white font-bold"
+              >
+                {['Period 1', 'Period 2', 'Period 3', 'Period 4'].map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+              <button 
+                onClick={handleViewHistory} 
+                disabled={isFetchingHistory}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-900 disabled:bg-slate-300 text-white font-bold rounded-xl text-xs transition-colors shadow-sm whitespace-nowrap flex items-center"
+              >
+                {isFetchingHistory ? 'Loading...' : 'View & Print Report'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showHistoryModal && (
+        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm print:bg-white print:p-0 print:absolute print:inset-0">
+          <div className="bg-white rounded-2xl p-8 max-w-3xl w-full shadow-xl relative print:shadow-none print:w-full print:max-w-none max-h-[90vh] overflow-y-auto print:overflow-visible print:h-auto">
+            <div className="flex justify-between items-center mb-6 print:hidden">
+               <h2 className="text-2xl font-bold text-slate-800 flex items-center"><Calendar size={24} className="text-indigo-600 mr-2"/> Past Session Report</h2>
+               <div className="flex space-x-2">
+                   <button onClick={() => window.print()} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl flex items-center font-bold text-sm shadow-sm transition-colors"><Printer size={16} className="mr-2"/> Print</button>
+                   <button onClick={() => setShowHistoryModal(false)} className="p-2 text-slate-400 hover:text-slate-600 transition-colors"><XCircle size={24}/></button>
+               </div>
+            </div>
+            
+            <div className="print:block text-slate-900">
+               <h1 className="text-2xl font-black text-center mb-1">SmartPass Session Report</h1>
+               <p className="text-center text-slate-600 font-medium mb-6 pb-6 border-b border-slate-200">Date: {reportDate} | Class: {historicalPeriod} | Teacher: {displayName || user?.email}</p>
+               
+               <table className="w-full text-left border-collapse">
+                  <thead>
+                     <tr className="border-b-2 border-slate-800 text-xs uppercase tracking-wider text-slate-500">
+                        <th className="py-3 px-2">Student</th>
+                        <th className="py-3 px-2">Destination</th>
+                        <th className="py-3 px-2">Status</th>
+                        <th className="py-3 px-2">Time Out</th>
+                        <th className="py-3 px-2">Time Returned</th>
+                     </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-sm">
+                     {historicalPasses.length === 0 ? (
+                        <tr><td colSpan="5" className="py-8 text-center text-slate-400 italic">No passes recorded for this session.</td></tr>
+                     ) : (
+                        historicalPasses.map(p => (
+                           <tr key={p.id}>
+                              <td className="py-3 px-2 font-bold">{p.studentName} <span className="block text-xs text-slate-400 font-mono font-normal">{p.studentId}</span></td>
+                              <td className="py-3 px-2">{DESTINATIONS[p.destination]?.label || p.destination}</td>
+                              <td className="py-3 px-2 capitalize font-semibold">{p.status}</td>
+                              <td className="py-3 px-2">{new Date(p.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
+                              <td className="py-3 px-2">{p.updatedAt && p.status === 'returned' ? new Date(p.updatedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'N/A'}</td>
+                           </tr>
+                        ))
+                     )}
+                  </tbody>
+               </table>
             </div>
           </div>
         </div>
