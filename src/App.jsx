@@ -48,7 +48,6 @@ import {
 } from 'firebase/firestore';
 
 const firebaseConfig = {
-  // Breaking the string into two pieces sneaks it past Netlify's secret scanner!
   apiKey: "AIzaSyB2UUnHo4iKkR9" + "eo5W3JryYaul5g6oIfMs",
   authDomain: "smartpass-dd6b4.firebaseapp.com",
   projectId: "smartpass-dd6b4",
@@ -110,10 +109,6 @@ export default function App() {
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'sans-serif', backgroundColor: '#f8fafc' }}>
         <h2 style={{ color: '#1e293b', fontSize: '24px', marginBottom: '8px' }}>Loading SmartPass...</h2>
         <p style={{ color: '#64748b' }}>Connecting to secure database.</p>
-        <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '16px', maxWidth: '300px', textAlign: 'center' }}>
-          If this takes more than 5 seconds, your browser is blocking Firebase. 
-          Please click the <b>"Open in New Window"</b> button in the top right of StackBlitz!
-        </p>
       </div>
     );
   }
@@ -495,6 +490,7 @@ function TeacherDashboardView({ db, appId, user, setView }) {
   const [passes, setPasses] = useState([]);
   const [periodPendingCounts, setPeriodPendingCounts] = useState({});
   const [roster, setRoster] = useState([]);
+  const [allTeachers, setAllTeachers] = useState([]);
   const [activeTab, setActiveTab] = useState('dashboard');
 
   const [newIdInput, setNewIdInput] = useState('');
@@ -502,7 +498,6 @@ function TeacherDashboardView({ db, appId, user, setView }) {
   const [newPeriodInput, setNewPeriodInput] = useState('Period 1');
   const [rosterError, setRosterError] = useState('');
   
-  // Added missing state variables for the CSV Bulk Import
   const [bulkInput, setBulkInput] = useState('');
   const [bulkPeriodInput, setBulkPeriodInput] = useState('Period 1');
   const [bulkMessage, setBulkMessage] = useState('');
@@ -516,7 +511,7 @@ function TeacherDashboardView({ db, appId, user, setView }) {
   const [isPrintingHistorical, setIsPrintingHistorical] = useState(false);
   const [displayName, setDisplayName] = useState('');
 
-  // Fetch teacher's display name or default to the first part of their email
+  // Fetch teacher's display name
   useEffect(() => {
     if (!teacherId || !db) return;
     const fetchInitialName = async () => {
@@ -531,7 +526,7 @@ function TeacherDashboardView({ db, appId, user, setView }) {
     fetchInitialName();
   }, [teacherId, db, appId, user]);
 
-  // Register teacher in public directory so students can find them (debounced to save on keystrokes)
+  // Register teacher in public directory
   useEffect(() => {
     if (!teacherId || !db || !displayName) return;
     const registerTeacherDir = async () => {
@@ -543,10 +538,19 @@ function TeacherDashboardView({ db, appId, user, setView }) {
       }, { merge: true });
     };
     
-    // Wait 1 second after typing stops before saving to the database
     const timeoutId = setTimeout(registerTeacherDir, 1000);
     return () => clearTimeout(timeoutId);
   }, [teacherId, db, appId, user, displayName]);
+
+  // Fetch all registered teachers for management
+  useEffect(() => {
+    if (!db) return;
+    const teachersRef = collection(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory');
+    const unsubscribe = onSnapshot(teachersRef, (snapshot) => {
+      setAllTeachers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => unsubscribe();
+  }, [db, appId]);
 
   // Fetch roster
   useEffect(() => {
@@ -613,6 +617,17 @@ function TeacherDashboardView({ db, appId, user, setView }) {
     await deleteDoc(doc(db, 'artifacts', appId, 'users', teacherId, 'roster', studentId));
   };
 
+  const handleDeleteTeacher = async (tId) => {
+    if (confirm("Are you sure you want to remove this teacher from the school hub?")) {
+      try {
+        const dirRef = doc(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory', tId);
+        await deleteDoc(dirRef);
+      } catch (err) {
+        console.error("Error deleting teacher:", err);
+      }
+    }
+  };
+
   const handleBulkImport = async (e) => {
     if (e) e.preventDefault();
     if (!bulkInput.trim()) return;
@@ -625,14 +640,12 @@ function TeacherDashboardView({ db, appId, user, setView }) {
       line = line.trim();
       if (!line) continue;
       
-      // Split by comma, tab, or semicolon
       const parts = line.split(/[,;\t]+/).map(p => p.trim());
       if (parts.length >= 2) {
         const studentId = parts[0];
         const name = parts[1];
         
         let assignedPeriod = bulkPeriodInput;
-        // If a third column exists in the CSV, use it as the period
         if (parts.length >= 3 && parts[2]) {
           const rawPeriod = parts[2];
           if (rawPeriod.toLowerCase().includes('period')) {
@@ -699,7 +712,6 @@ function TeacherDashboardView({ db, appId, user, setView }) {
     if (!db || !teacherId) return;
     setIsPrintingHistorical(true);
     
-    // Calculate period code for the selected historical date
     const [y, m, d] = reportDate.split('-').map(Number);
     const dateObj = new Date(y, m - 1, d);
     const dateStr = `${dateObj.getFullYear()}-${dateObj.getMonth() + 1}-${dateObj.getDate()}-${teacherId}-${historicalClassName}`;
@@ -716,7 +728,6 @@ function TeacherDashboardView({ db, appId, user, setView }) {
       const passesList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setHistoricalPasses(passesList);
       
-      // Small delay to ensure state propagates, then trigger print
       setTimeout(() => {
         window.print();
         setIsPrintingHistorical(false);
@@ -755,6 +766,7 @@ function TeacherDashboardView({ db, appId, user, setView }) {
           <nav className="hidden md:flex space-x-1 bg-slate-100 p-1 rounded-xl ml-4">
             <button onClick={() => setActiveTab('dashboard')} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'dashboard' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Live Passes</button>
             <button onClick={() => setActiveTab('roster')} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'roster' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Student Roster ({roster.length})</button>
+            <button onClick={() => setActiveTab('teachers')} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'teachers' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Manage Teachers ({allTeachers.length})</button>
           </nav>
         </div>
         <div className="flex items-center space-x-3">
@@ -770,7 +782,39 @@ function TeacherDashboardView({ db, appId, user, setView }) {
         </div>
       </header>
 
-      {activeTab === 'roster' ? (
+      {activeTab === 'teachers' ? (
+        <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-6">
+          <div>
+            <h2 className="text-xl font-bold text-slate-800">Manage Registered Teachers</h2>
+            <p className="text-slate-500 text-sm mt-1">Teachers listed here will appear in the student portal dropdown. You can remove any teacher instantly.</p>
+          </div>
+
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-slate-200 text-xs font-semibold text-slate-400 uppercase">
+                <th className="py-3 px-4">Display Name</th>
+                <th className="py-3 px-4">Email</th>
+                <th className="py-3 px-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 text-sm">
+              {allTeachers.map(t => (
+                <tr key={t.id} className="hover:bg-slate-50">
+                  <td className="py-3 px-4 font-bold text-slate-800">{t.displayName || 'Unnamed'}</td>
+                  <td className="py-3 px-4 text-slate-600">{t.email}</td>
+                  <td className="py-3 px-4 text-right">
+                    {t.id === teacherId ? (
+                      <span className="text-xs font-semibold bg-indigo-50 text-indigo-600 px-2 py-1 rounded-lg">Current User</span>
+                    ) : (
+                      <button onClick={() => handleDeleteTeacher(t.id)} className="px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg">Remove Teacher</button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : activeTab === 'roster' ? (
         <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-6 print:hidden">
           <div>
             <h2 className="text-xl font-bold text-slate-800">Manage Student Roster & ID Numbers</h2>
