@@ -66,7 +66,7 @@ const db = getFirestore(app);
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'smartpass-school';
 
 // Define your Master Admin email here
-const MASTER_ADMIN_EMAIL = "admin@school.edu";
+const MASTER_ADMIN_EMAIL = "bmindajao@bertie.k12.nc.us";
 
 const DESTINATIONS = {
   'restroom': { label: 'Restroom', icon: '🚽' },
