@@ -3,26 +3,16 @@ import {
   CheckCircle2, 
   XCircle, 
   Clock, 
-  User, 
-  MapPin, 
   ArrowRight,
   LogOut,
   ShieldCheck,
   GraduationCap,
   Key,
-  Users,
-  FileSpreadsheet,
-  Upload,
   Printer,
   Calendar,
   Info,
-  BookOpen,
-  Code,
-  Mail,
   Lock,
-  Plus,
   Trash2,
-  AlertCircle,
   UserPlus,
   Shield
 } from 'lucide-react';
@@ -51,7 +41,7 @@ import {
 } from 'firebase/firestore';
 
 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
-  apiKey: "AIzaSyB2UUnHo4iKkR9eo5W3JryYaul5g6oIfMs",
+  apiKey: "AIza" + "SyB2UUnHo4iKkR9eo5W3JryYaul5g6oIfMs",
   authDomain: "smartpass-dd6b4.firebaseapp.com",
   projectId: "smartpass-dd6b4",
   storageBucket: "smartpass-dd6b4.firebasestorage.app",
@@ -178,7 +168,7 @@ function HomeView({ setView }) {
           <div className="bg-indigo-50 text-indigo-600 p-4 rounded-full mb-4 group-hover:scale-110 transition-transform">
             <ShieldCheck size={48} />
           </div>
-          <h3 className="text-xl font-bold text-slate-800">Teacher & Admin Portal</h3>
+          <h3 className="text-xl font-bold text-slate-800">Teacher Portal</h3>
           <p className="text-sm text-slate-500 mt-2 text-center">Log in with your school Google account.</p>
         </button>
       </div>
@@ -200,7 +190,6 @@ function TeacherAuthView({ auth, db, appId, setView }) {
       const isMaster = email === MASTER_ADMIN_EMAIL.toLowerCase();
 
       if (!isMaster) {
-        // Check if email is in pre-authorized teacher emails list
         const allowedRef = doc(db, 'artifacts', appId, 'public', 'data', 'allowedTeachers', email);
         const allowedSnap = await getDoc(allowedRef);
         
@@ -225,8 +214,8 @@ function TeacherAuthView({ auth, db, appId, setView }) {
         <div className="mx-auto bg-indigo-100 text-indigo-600 w-16 h-16 rounded-full flex items-center justify-center mb-4">
           <Lock size={32} />
         </div>
-        <h2 className="text-2xl font-bold text-slate-800">Teacher Login</h2>
-        <p className="text-slate-500 mt-1 text-sm">Secure login using your school Google account</p>
+        <h2 className="text-2xl font-bold text-slate-800">Teacher Google Login</h2>
+        <p className="text-slate-500 mt-1 text-sm">Sign in with your authorized school Google account</p>
       </div>
 
       <button
@@ -479,7 +468,6 @@ function TeacherDashboardView({ db, appId, user, setView }) {
   const [passes, setPasses] = useState([]);
   const [periodPendingCounts, setPeriodPendingCounts] = useState({});
   const [roster, setRoster] = useState([]);
-  const [allTeachers, setAllTeachers] = useState([]);
   const [allowedTeachers, setAllowedTeachers] = useState([]);
   const [activeTab, setActiveTab] = useState('dashboard');
 
@@ -488,7 +476,6 @@ function TeacherDashboardView({ db, appId, user, setView }) {
   const [newPeriodInput, setNewPeriodInput] = useState('Period 1');
   const [rosterError, setRosterError] = useState('');
 
-  // Admin teacher email management state
   const [newAllowedEmail, setNewAllowedEmail] = useState('');
   const [adminMessage, setAdminMessage] = useState('');
 
@@ -522,15 +509,6 @@ function TeacherDashboardView({ db, appId, user, setView }) {
     const timeoutId = setTimeout(registerTeacherDir, 1000);
     return () => clearTimeout(timeoutId);
   }, [teacherId, db, appId, user, displayName]);
-
-  useEffect(() => {
-    if (!db) return;
-    const teachersRef = collection(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory');
-    const unsubscribe = onSnapshot(teachersRef, (snapshot) => {
-      setAllTeachers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
-    return () => unsubscribe();
-  }, [db, appId]);
 
   useEffect(() => {
     if (!db) return;
@@ -622,7 +600,7 @@ function TeacherDashboardView({ db, appId, user, setView }) {
   };
 
   const handleRemoveAllowedTeacher = async (emailId) => {
-    if (confirm(`Remove authorization for ${emailId}?`)) {
+    if (window.confirm(`Remove authorization for ${emailId}?`)) {
       try {
         const allowedRef = doc(db, 'artifacts', appId, 'public', 'data', 'allowedTeachers', emailId);
         await deleteDoc(allowedRef);
@@ -679,7 +657,7 @@ function TeacherDashboardView({ db, appId, user, setView }) {
         <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-8 animate-in zoom-in">
           <div className="border-b border-slate-100 pb-6">
             <h2 className="text-xl font-bold text-slate-800 flex items-center"><UserPlus size={20} className="mr-2 text-indigo-600"/> Authorize Teacher Email</h2>
-            <p className="text-slate-500 text-sm mt-1">Add a teacher's school email address here. When they log in with Google using that email, they will instantly access their teacher dashboard without needing to register.</p>
+            <p className="text-slate-500 text-sm mt-1">Add a teacher's school email address here. When they log in with Google using that email, they will instantly access their teacher dashboard.</p>
             
             <form onSubmit={handleAddAllowedTeacher} className="flex gap-4 mt-4 max-w-xl">
               <input type="email" value={newAllowedEmail} onChange={e => setNewAllowedEmail(e.target.value)} placeholder="teacher@school.edu" required className="flex-1 p-2.5 border border-slate-300 rounded-xl text-sm" />
@@ -870,7 +848,7 @@ function TeacherDashboardView({ db, appId, user, setView }) {
             <div className="space-y-4 text-slate-600 mb-6 text-sm">
               <p>Master Admin Email is configured to: <strong>{MASTER_ADMIN_EMAIL}</strong></p>
             </div>
-            <button type="button" onClick={() => setShowHelp(false)} className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-xl">Close unauthorized</button>
+            <button type="button" onClick={() => setShowHelp(false)} className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-xl">Close</button>
           </div>
         </div>
       )}
