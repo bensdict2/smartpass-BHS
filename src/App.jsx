@@ -197,7 +197,7 @@ function TeacherAuthView({ auth, db, appId, setView }) {
         
         if (!allowedSnap.exists()) {
           await signOut(auth);
-          setError('Your school email is not authorized to access the teacher dashboard. Please contact the administrator.');
+          setError(`Access Denied: ${email} is not an authorized teacher account.`);
           setLoading(false);
           return;
         }
@@ -254,17 +254,12 @@ function StudentPortalView({ db, appId }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    const fetchTeachers = async () => {
-      try {
-        const teachersRef = collection(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory');
-        const snap = await getDocs(teachersRef);
-        const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setTeachers(list);
-      } catch (err) {
-        console.error("Error fetching teachers:", err);
-      }
-    };
-    fetchTeachers();
+    const teachersRef = collection(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory');
+    const unsubscribe = onSnapshot(teachersRef, (snap) => {
+      const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setTeachers(list);
+    }, (err) => console.error("Error fetching teachers:", err));
+    return () => unsubscribe();
   }, [db, appId]);
 
   const handleStudentIdSubmit = async (e) => {
@@ -384,7 +379,7 @@ function StudentPortalView({ db, appId }) {
                   onClick={() => setSelectedTeacherId(t.id)}
                   className="w-full p-4 border border-slate-200 hover:border-indigo-500 rounded-xl text-left font-bold text-slate-800 flex justify-between items-center transition-all bg-slate-50 hover:bg-indigo-50/50"
                 >
-                  <span>{t.displayName || t.email || 'Teacher'}</span>
+                  <span>{t.name || t.displayName || t.email || 'Teacher'}</span>
                   <ArrowRight size={18} className="text-indigo-600" />
                 </button>
               ))
@@ -484,12 +479,12 @@ function TeacherDashboardView({ db, appId, user, setView }) {
   const [isDragging, setIsDragging] = useState(false);
 
   const [newAllowedEmail, setNewAllowedEmail] = useState('');
+  const [bulkTeacherInput, setBulkTeacherInput] = useState('');
   const [adminMessage, setAdminMessage] = useState('');
 
   const [showHelp, setShowHelp] = useState(false);
   const [displayName, setDisplayName] = useState('');
 
-  // History reporting state
   const [reportDate, setReportDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [historicalPeriod, setHistoricalPeriod] = useState('Period 1');
   const [historicalPasses, setHistoricalPasses] = useState(null);
@@ -498,14 +493,32 @@ function TeacherDashboardView({ db, appId, user, setView }) {
   useEffect(() => {
     if (!teacherId || !db) return;
     
-    // Register Teacher in public directory (so students can select them)
     const registerTeacherDir = async () => {
+      if (!isMasterAdmin) {
+        const allowedRef = doc(db, 'artifacts', appId, 'public', 'data', 'allowedTeachers', user.email.toLowerCase());
+        const allowedSnap = await getDoc(allowedRef);
+        if (!allowedSnap.exists()) {
+          await signOut(auth);
+          setView('home');
+          return;
+        }
+      }
+
       const dirRef = doc(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory', teacherId);
-      await setDoc(dirRef, { email: user.email, updatedAt: Date.now() }, { merge: true });
+      const dirSnap = await getDoc(dirRef);
+      const existingName = dirSnap.exists() ? (dirSnap.data().name || '') : '';
+      if (existingName && !displayName) {
+        setDisplayName(existingName);
+      }
+
+      await setDoc(dirRef, { 
+        email: user.email, 
+        name: displayName || existingName || user.email,
+        updatedAt: Date.now() 
+      }, { merge: true });
     };
     registerTeacherDir();
 
-    // Fetch Authorized Teachers (if Admin)
     if (isMasterAdmin) {
       const allowedRef = collection(db, 'artifacts', appId, 'public', 'data', 'allowedTeachers');
       const unsubAdmin = onSnapshot(allowedRef, (snap) => {
@@ -513,7 +526,18 @@ function TeacherDashboardView({ db, appId, user, setView }) {
       });
       return () => unsubAdmin();
     }
-  }, [teacherId, db, appId, user, isMasterAdmin]);
+  }, [teacherId, db, appId, user, isMasterAdmin, setView, displayName]);
+
+  const handleDisplayNameChange = async (newVal) => {
+    setDisplayName(newVal);
+    if (!teacherId || !db) return;
+    const dirRef = doc(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory', teacherId);
+    await setDoc(dirRef, { 
+      email: user.email, 
+      name: newVal, 
+      updatedAt: Date.now() 
+    }, { merge: true });
+  };
 
   useEffect(() => {
     if (!teacherId || !db) return;
@@ -591,7 +615,6 @@ function TeacherDashboardView({ db, appId, user, setView }) {
         line = line.trim();
         if (!line) continue;
         
-        // Split by comma, tab, or semicolon for spreadsheet pasting
         const parts = line.split(/[,;\t]+/).map(p => p.trim());
         if (parts.length >= 2) {
             const studentId = parts[0];
@@ -680,10 +703,39 @@ function TeacherDashboardView({ db, appId, user, setView }) {
       try {
         const allowedRef = doc(db, 'artifacts', appId, 'public', 'data', 'allowedTeachers', emailId);
         await deleteDoc(allowedRef);
+
+        const dirRef = collection(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory');
+        const snap = await getDocs(dirRef);
+        for (const docSnap of snap.docs) {
+          const data = docSnap.data();
+          if (data.email?.toLowerCase() === emailId.toLowerCase()) {
+            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory', docSnap.id));
+          }
+        }
       } catch (err) {
         console.error("Error removing authorized email:", err);
       }
     }
+  };
+
+  const handleBulkTeacherImport = async () => {
+    if (!bulkTeacherInput.trim()) return;
+    setAdminMessage('Processing...');
+    const emails = bulkTeacherInput.split(/[\n,;\t]+/).map(e => e.trim().toLowerCase()).filter(e => e.includes('@'));
+    
+    let added = 0;
+    for (const email of emails) {
+      try {
+        const allowedRef = doc(db, 'artifacts', appId, 'public', 'data', 'allowedTeachers', email);
+        await setDoc(allowedRef, { email: email, addedAt: Date.now() });
+        added++;
+      } catch (err) {
+        console.error("Error adding email", err);
+      }
+    }
+    
+    setAdminMessage(`Successfully authorized ${added} teacher(s)!`);
+    setBulkTeacherInput('');
   };
 
   const handleViewHistory = async () => {
@@ -723,7 +775,7 @@ function TeacherDashboardView({ db, appId, user, setView }) {
                   <input 
                       type="text" 
                       value={displayName}
-                      onChange={(e) => setDisplayName(e.target.value)}
+                      onChange={(e) => handleDisplayNameChange(e.target.value)}
                       placeholder="Your Name (e.g. Mr. M)"
                       className="text-xl font-bold text-slate-800 bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:outline-none focus:border-indigo-500 transition-colors p-0 mr-2 w-48"
                   />
@@ -733,7 +785,6 @@ function TeacherDashboardView({ db, appId, user, setView }) {
             </div>
           </div>
           
-          {/* Main Navigation Tabs */}
           <nav className="flex space-x-1 bg-slate-100 p-1 rounded-xl overflow-x-auto">
             <button onClick={() => setActiveTab('dashboard')} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${activeTab === 'dashboard' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Live Passes</button>
             <button onClick={() => setActiveTab('roster')} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${activeTab === 'roster' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>Roster ({roster.length})</button>
@@ -754,7 +805,6 @@ function TeacherDashboardView({ db, appId, user, setView }) {
         </div>
       </header>
 
-      {/* --- REPORTS TAB --- */}
       {activeTab === 'reports' ? (
         <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-8 animate-in zoom-in">
           <div className="border-b border-slate-100 pb-6 print:hidden">
@@ -786,7 +836,6 @@ function TeacherDashboardView({ db, appId, user, setView }) {
             </div>
           </div>
 
-          {/* Historical Data Display (Printable) */}
           {historicalPasses && (
             <div className="print:block text-slate-900 animate-in fade-in">
                <div className="flex justify-between items-center mb-6 print:hidden">
@@ -794,20 +843,20 @@ function TeacherDashboardView({ db, appId, user, setView }) {
                    <button onClick={() => window.print()} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl flex items-center font-bold text-sm shadow-sm transition-colors"><Printer size={16} className="mr-2"/> Print This Report</button>
                </div>
 
-               {/* Print Only Header */}
                <div className="hidden print:block text-center mb-6 border-b-2 border-slate-800 pb-4">
                  <h1 className="text-2xl font-black mb-1">SmartPass Session Report</h1>
                  <p className="text-slate-600 font-medium">Date: {reportDate} | Class: {historicalPeriod} | Teacher: {displayName || user?.email}</p>
                </div>
                
-               <table className="w-full text-left border-collapse">
-                  <thead>
-                     <tr className="border-b-2 border-slate-800 text-xs uppercase tracking-wider text-slate-500">
-                        <th className="py-3 px-2">Student</th>
-                        <th className="py-3 px-2">Destination</th>
-                        <th className="py-3 px-2">Status</th>
-                        <th className="py-3 px-2">Time Out</th>
-                        <th className="py-3 px-2">Time Returned</th>
+               <div className="overflow-x-auto rounded-xl border border-slate-100 print:border-none print:overflow-visible">
+                 <table className="w-full text-left border-collapse min-w-[600px] print:min-w-full">
+                    <thead>
+                       <tr className="border-b-2 border-slate-800 text-xs uppercase tracking-wider text-slate-500">
+                          <th className="py-3 px-2">Student</th>
+                          <th className="py-3 px-2">Destination</th>
+                          <th className="py-3 px-2">Status</th>
+                          <th className="py-3 px-2">Time Out</th>
+                          <th className="py-3 px-2">Time Returned</th>
                      </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-sm">
@@ -825,53 +874,67 @@ function TeacherDashboardView({ db, appId, user, setView }) {
                         ))
                      )}
                   </tbody>
-               </table>
+                 </table>
+               </div>
             </div>
           )}
         </div>
 
-      /* --- MANAGE TEACHERS TAB (ADMIN ONLY) --- */
       ) : activeTab === 'teachers' && isMasterAdmin ? (
         <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-8 animate-in zoom-in print:hidden">
           <div className="border-b border-slate-100 pb-6">
             <h2 className="text-xl font-bold text-slate-800 flex items-center"><UserPlus size={20} className="mr-2 text-indigo-600"/> Authorize Teacher Email</h2>
             <p className="text-slate-500 text-sm mt-1">Add a teacher's school email address here. When they log in with Google using that email, they will instantly access their teacher dashboard.</p>
             
-            <form onSubmit={handleAddAllowedTeacher} className="flex gap-4 mt-4 max-w-xl">
+            <form onSubmit={handleAddAllowedTeacher} className="flex flex-col sm:flex-row gap-3 sm:gap-4 mt-4 max-w-xl">
               <input type="email" value={newAllowedEmail} onChange={e => setNewAllowedEmail(e.target.value)} placeholder="teacher@school.edu" required className="flex-1 p-2.5 border border-slate-300 rounded-xl text-sm" />
               <button type="submit" className="py-2.5 px-6 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-sm shadow-sm whitespace-nowrap">Authorize Email</button>
             </form>
+
+            <div className="mt-6 pt-6 border-t border-slate-100">
+               <h3 className="text-sm font-bold text-slate-700 mb-2">Or Bulk Add Teachers (Paste a list)</h3>
+               <textarea 
+                  value={bulkTeacherInput} 
+                  onChange={e => setBulkTeacherInput(e.target.value)}
+                  placeholder="Paste teacher emails here, separated by commas or on new lines...&#10;teacher1@bertie.k12.nc.us&#10;teacher2@bertie.k12.nc.us"
+                  rows={3}
+                  className="w-full max-w-xl p-3 border border-slate-300 rounded-xl text-sm font-mono outline-none focus:ring-2 focus:ring-indigo-500"
+               ></textarea>
+               <br />
+               <button onClick={handleBulkTeacherImport} className="mt-2 py-2 px-6 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl text-sm shadow-sm">Bulk Authorize</button>
+            </div>
             {adminMessage && <p className="text-xs font-bold text-emerald-600 mt-3">{adminMessage}</p>}
           </div>
 
           <div>
             <h2 className="text-xl font-bold text-slate-800 mb-4">Authorized Teacher Emails ({allowedTeachers.length})</h2>
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-200 text-xs font-semibold text-slate-400 uppercase">
-                  <th className="py-3 px-4">School Email</th>
-                  <th className="py-3 px-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-sm">
-                {allowedTeachers.map(t => (
-                  <tr key={t.id} className="hover:bg-slate-50">
-                    <td className="py-3 px-4 font-bold text-slate-800">{t.email}</td>
-                    <td className="py-3 px-4 text-right">
-                      {t.email.toLowerCase() === MASTER_ADMIN_EMAIL.toLowerCase() ? (
-                        <span className="text-xs font-semibold bg-amber-50 text-amber-700 px-2.5 py-1 rounded-lg">Master Admin</span>
-                      ) : (
-                        <button onClick={() => handleRemoveAllowedTeacher(t.id)} className="px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg">Revoke Access</button>
-                      )}
-                    </td>
+            <div className="overflow-x-auto rounded-xl border border-slate-100">
+              <table className="w-full text-left border-collapse min-w-[500px]">
+                <thead>
+                  <tr className="border-b border-slate-200 text-xs font-semibold text-slate-400 uppercase bg-slate-50">
+                    <th className="py-3 px-4">School Email</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-sm">
+                  {allowedTeachers.map(t => (
+                    <tr key={t.id} className="hover:bg-slate-50">
+                      <td className="py-3 px-4 font-bold text-slate-800">{t.email}</td>
+                      <td className="py-3 px-4 text-right">
+                        {t.email.toLowerCase() === MASTER_ADMIN_EMAIL.toLowerCase() ? (
+                          <span className="text-xs font-semibold bg-amber-50 text-amber-700 px-2.5 py-1 rounded-lg">Master Admin</span>
+                        ) : (
+                          <button onClick={() => handleRemoveAllowedTeacher(t.id)} className="px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg">Revoke Access</button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
 
-      /* --- ROSTER TAB --- */
       ) : activeTab === 'roster' ? (
         <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-6 print:hidden">
           <div>
@@ -945,31 +1008,32 @@ function TeacherDashboardView({ db, appId, user, setView }) {
             </div>
           </form>
 
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-slate-200 text-xs font-semibold text-slate-400 uppercase">
-                <th className="py-3 px-4">Student ID</th>
-                <th className="py-3 px-4">Name</th>
-                <th className="py-3 px-4">Period</th>
-                <th className="py-3 px-4 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-sm">
-              {roster.map(student => (
-                <tr key={student.studentId} className="hover:bg-slate-50">
-                  <td className="py-3 px-4 font-mono font-bold text-indigo-600">{student.studentId}</td>
-                  <td className="py-3 px-4 font-semibold text-slate-800">{student.name}</td>
-                  <td className="py-3 px-4"><span className="bg-slate-100 text-slate-700 px-2.5 py-1 rounded-lg text-xs font-bold">{student.period}</span></td>
-                  <td className="py-3 px-4 text-right">
-                    <button onClick={() => deleteStudentFromRoster(student.studentId)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={16} /></button>
-                  </td>
+          <div className="overflow-x-auto rounded-xl border border-slate-100">
+            <table className="w-full text-left border-collapse min-w-[500px]">
+              <thead>
+                <tr className="border-b border-slate-200 text-xs font-semibold text-slate-400 uppercase bg-slate-50">
+                  <th className="py-3 px-4">Student ID</th>
+                  <th className="py-3 px-4">Name</th>
+                  <th className="py-3 px-4">Period</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-sm">
+                {roster.map(student => (
+                  <tr key={student.studentId} className="hover:bg-slate-50">
+                    <td className="py-3 px-4 font-mono font-bold text-indigo-600">{student.studentId}</td>
+                    <td className="py-3 px-4 font-semibold text-slate-800">{student.name}</td>
+                    <td className="py-3 px-4"><span className="bg-slate-100 text-slate-700 px-2.5 py-1 rounded-lg text-xs font-bold">{student.period}</span></td>
+                    <td className="py-3 px-4 text-right">
+                      <button onClick={() => deleteStudentFromRoster(student.studentId)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={16} /></button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
 
-      /* --- LIVE PASSES DASHBOARD --- */
       ) : (
         <div className="space-y-6 print:hidden">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -986,7 +1050,7 @@ function TeacherDashboardView({ db, appId, user, setView }) {
             <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm md:col-span-2 flex flex-col justify-between">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-2">Select Class Period</label>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
                   {['Period 1', 'Period 2', 'Period 3', 'Period 4'].map((p) => {
                     const count = periodPendingCounts[p] || 0;
                     return (
@@ -1006,7 +1070,7 @@ function TeacherDashboardView({ db, appId, user, setView }) {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-[60vh]">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-[45vh] lg:h-[60vh]">
               <div className="bg-amber-500 p-4 flex justify-between items-center text-white shrink-0">
                 <h2 className="text-lg font-bold flex items-center"><Clock size={18} className="mr-2" /> Pending Requests</h2>
                 <span className="bg-amber-600 px-2.5 py-0.5 rounded-full text-xs font-bold">{waitingPasses.length}</span>
@@ -1028,7 +1092,7 @@ function TeacherDashboardView({ db, appId, user, setView }) {
               </div>
             </div>
 
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-[60vh]">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-[45vh] lg:h-[60vh]">
               <div className="bg-emerald-500 p-4 flex justify-between items-center text-white shrink-0">
                 <h2 className="text-lg font-bold flex items-center"><ArrowRight size={18} className="mr-2" /> Currently Out</h2>
                 <span className="bg-emerald-600 px-2.5 py-0.5 rounded-full text-xs font-bold">{activePasses.length}</span>
@@ -1047,7 +1111,7 @@ function TeacherDashboardView({ db, appId, user, setView }) {
               </div>
             </div>
 
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-[60vh]">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-[45vh] lg:h-[60vh]">
               <div className="bg-slate-600 p-4 flex justify-between items-center text-white shrink-0">
                 <h2 className="text-lg font-bold flex items-center"><Calendar size={18} className="mr-2" /> Session History</h2>
                 <span className="bg-slate-700 px-2.5 py-0.5 rounded-full text-xs font-bold">{returnedPasses.length}</span>
@@ -1069,7 +1133,6 @@ function TeacherDashboardView({ db, appId, user, setView }) {
         </div>
       )}
 
-      {/* HELP OVERLAY */}
       {showHelp && (
         <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm print:hidden">
           <div className="bg-white rounded-2xl p-8 max-w-lg w-full shadow-xl relative">
