@@ -1097,11 +1097,11 @@ function TeacherDashboardView({ db, appId, user, setView }) {
               >
                 <option value="">-- Select Student --</option>
                 {roster
-                  .slice()
+                  .filter(s => s.period === className)
                   .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
                   .map(s => (
                     <option key={s.studentId} value={s.studentId}>
-                      {s.name} ({s.period || 'No Period'})
+                      {s.name}
                     </option>
                   ))
                 }
