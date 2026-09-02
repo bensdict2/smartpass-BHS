@@ -19,7 +19,9 @@ import {
   Upload,
   FileSpreadsheet,
   Plus,
-  Edit2
+  Edit2,
+  ArrowUpDown,
+  Filter
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
@@ -500,34 +502,37 @@ function TeacherDashboardView({ db, appId, user, setView }) {
   const [editName, setEditName] = useState('');
   const [editPeriod, setEditPeriod] = useState('Period 1');
 
-  useEffect(() => {
-    if (!teacherId || !db) return;
-    const rosterRef = collection(db, 'artifacts', appId, 'users', teacherId, 'roster');
-    const unsubscribe = onSnapshot(rosterRef, (snapshot) => {
-      setRoster(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
-    return () => unsubscribe();
-  }, [teacherId, db, appId]);
+  const [sortConfig, setSortConfig] = useState({ key: 'name', direction: 'asc' });
+  const [periodFilter, setPeriodFilter] = useState('All');
 
-  // 2. Fetch Live Passes for Current Class
-  useEffect(() => {
-    if (!teacherId || !db || !sessionCode) return;
-    const passesRef = collection(db, 'artifacts', appId, 'users', teacherId, 'sessions', sessionCode, 'passes');
-    const unsubscribe = onSnapshot(passesRef, (snapshot) => {
-      setPasses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
-    return () => unsubscribe();
-  }, [teacherId, db, appId, sessionCode]);
+  const sortedAndFilteredRoster = React.useMemo(() => {
+    let items = [...roster];
+    
+    // 1. Filter
+    if (periodFilter !== 'All') {
+      items = items.filter(student => student.period === periodFilter);
+    }
+    
+    // 2. Sort
+    if (sortConfig) {
+      items.sort((a, b) => {
+        const aVal = (a[sortConfig.key] || '').toString().toLowerCase();
+        const bVal = (b[sortConfig.key] || '').toString().toLowerCase();
+        if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+        if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+        return 0;
+      });
+    }
+    return items;
+  }, [roster, sortConfig, periodFilter]);
 
-  // 3. Fetch Allowed Teachers (Admin Only)
-  useEffect(() => {
-    if (!db || !isMasterAdmin) return;
-    const allowedRef = collection(db, 'artifacts', appId, 'public', 'data', 'allowedTeachers');
-    const unsubscribe = onSnapshot(allowedRef, (snapshot) => {
-      setAllowedTeachers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
-    return () => unsubscribe();
-  }, [db, appId, isMasterAdmin]);
+  const requestSort = (key) => {
+    let direction = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
 
   useEffect(() => {
     if (!teacherId || !db) return;
@@ -1020,18 +1025,39 @@ function TeacherDashboardView({ db, appId, user, setView }) {
             </div>
           </form>
 
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-3 mb-2 mt-8">
+            <h3 className="text-lg font-bold text-slate-800">Current Roster Directory</h3>
+            <div className="flex items-center space-x-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200">
+              <Filter size={16} className="text-slate-500 ml-1" />
+              <select 
+                value={periodFilter} 
+                onChange={e => setPeriodFilter(e.target.value)}
+                className="p-1 border-none bg-transparent text-sm font-bold text-slate-700 outline-none focus:ring-0 cursor-pointer"
+              >
+                <option value="All">All Periods</option>
+                {['Period 1', 'Period 2', 'Period 3', 'Period 4'].map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </div>
+          </div>
+
           <div className="overflow-x-auto rounded-xl border border-slate-100">
             <table className="w-full text-left border-collapse min-w-[500px]">
               <thead>
-                <tr className="border-b border-slate-200 text-xs font-semibold text-slate-400 uppercase bg-slate-50">
-                  <th className="py-3 px-4">Student ID</th>
-                  <th className="py-3 px-4">Name</th>
-                  <th className="py-3 px-4">Period</th>
+                <tr className="border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase bg-slate-50">
+                  <th className="py-3 px-4 cursor-pointer hover:bg-slate-200 transition-colors group" onClick={() => requestSort('studentId')}>
+                    <div className="flex items-center">Student ID <ArrowUpDown size={14} className="ml-1 opacity-40 group-hover:opacity-100"/></div>
+                  </th>
+                  <th className="py-3 px-4 cursor-pointer hover:bg-slate-200 transition-colors group" onClick={() => requestSort('name')}>
+                    <div className="flex items-center">Name <ArrowUpDown size={14} className="ml-1 opacity-40 group-hover:opacity-100"/></div>
+                  </th>
+                  <th className="py-3 px-4 cursor-pointer hover:bg-slate-200 transition-colors group" onClick={() => requestSort('period')}>
+                    <div className="flex items-center">Period <ArrowUpDown size={14} className="ml-1 opacity-40 group-hover:opacity-100"/></div>
+                  </th>
                   <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm">
-                {roster.map(student => (
+                {sortedAndFilteredRoster.map(student => (
                   editingStudentId === student.studentId ? (
                     <tr key={student.studentId} className="bg-indigo-50/50">
                       <td className="py-3 px-4 font-mono font-bold text-indigo-600">{student.studentId}</td>
