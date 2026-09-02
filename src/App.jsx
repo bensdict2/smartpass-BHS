@@ -18,7 +18,8 @@ import {
   Search,
   Upload,
   FileSpreadsheet,
-  Plus
+  Plus,
+  Edit2
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
@@ -495,27 +496,10 @@ function TeacherDashboardView({ db, appId, user, setView }) {
   const [manualDestination, setManualDestination] = useState('');
   const [isCreatingManualPass, setIsCreatingManualPass] = useState(false);
 
-  useEffect(() => {
-    if (!teacherId || !db) return;
-    const fetchDir = async () => {
-      const dirRef = doc(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory', teacherId);
-      const snap = await getDoc(dirRef);
-      if (snap.exists() && snap.data().name) {
-        setDisplayName(snap.data().name);
-      }
-    };
-    fetchDir();
-  }, [teacherId, db, appId]);
+  const [editingStudentId, setEditingStudentId] = useState(null);
+  const [editName, setEditName] = useState('');
+  const [editPeriod, setEditPeriod] = useState('Period 1');
 
-  const handleDisplayNameChange = async (newName) => {
-    setDisplayName(newName);
-    if (!teacherId || !db) return;
-    const dirRef = doc(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory', teacherId);
-    await setDoc(dirRef, { name: newName, email: user?.email, updatedAt: Date.now() }, { merge: true });
-  };
-
-  
-  // 1. Fetch Student Roster
   useEffect(() => {
     if (!teacherId || !db) return;
     const rosterRef = collection(db, 'artifacts', appId, 'users', teacherId, 'roster');
@@ -589,6 +573,20 @@ function TeacherDashboardView({ db, appId, user, setView }) {
 
   const deleteStudentFromRoster = async (studentId) => {
     await deleteDoc(doc(db, 'artifacts', appId, 'users', teacherId, 'roster', studentId));
+  };
+
+  const handleSaveEdit = async (studentId) => {
+    if (!editName.trim()) return;
+    try {
+      const studentRef = doc(db, 'artifacts', appId, 'users', teacherId, 'roster', studentId);
+      await updateDoc(studentRef, {
+        name: editName.trim(),
+        period: editPeriod
+      });
+      setEditingStudentId(null);
+    } catch (err) {
+      console.error("Error updating student:", err);
+    }
   };
 
   const handleBulkImport = async (e) => {
@@ -1034,14 +1032,33 @@ function TeacherDashboardView({ db, appId, user, setView }) {
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm">
                 {roster.map(student => (
-                  <tr key={student.studentId} className="hover:bg-slate-50">
-                    <td className="py-3 px-4 font-mono font-bold text-indigo-600">{student.studentId}</td>
-                    <td className="py-3 px-4 font-semibold text-slate-800">{student.name}</td>
-                    <td className="py-3 px-4"><span className="bg-slate-100 text-slate-700 px-2.5 py-1 rounded-lg text-xs font-bold">{student.period}</span></td>
-                    <td className="py-3 px-4 text-right">
-                      <button onClick={() => deleteStudentFromRoster(student.studentId)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={16} /></button>
-                    </td>
-                  </tr>
+                  editingStudentId === student.studentId ? (
+                    <tr key={student.studentId} className="bg-indigo-50/50">
+                      <td className="py-3 px-4 font-mono font-bold text-indigo-600">{student.studentId}</td>
+                      <td className="py-3 px-4">
+                        <input type="text" value={editName} onChange={e => setEditName(e.target.value)} className="w-full p-1.5 border border-slate-300 rounded text-sm bg-white outline-none focus:border-indigo-500" />
+                      </td>
+                      <td className="py-3 px-4">
+                        <select value={editPeriod} onChange={e => setEditPeriod(e.target.value)} className="p-1.5 border border-slate-300 rounded text-sm bg-white outline-none focus:border-indigo-500">
+                          {['Period 1', 'Period 2', 'Period 3', 'Period 4'].map(p => <option key={p} value={p}>{p}</option>)}
+                        </select>
+                      </td>
+                      <td className="py-3 px-4 text-right whitespace-nowrap">
+                        <button onClick={() => handleSaveEdit(student.studentId)} className="p-1.5 text-emerald-600 hover:bg-emerald-100 rounded-lg mr-1" title="Save Changes"><CheckCircle2 size={18} /></button>
+                        <button onClick={() => setEditingStudentId(null)} className="p-1.5 text-slate-400 hover:bg-slate-200 rounded-lg" title="Cancel"><XCircle size={18} /></button>
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr key={student.studentId} className="hover:bg-slate-50">
+                      <td className="py-3 px-4 font-mono font-bold text-indigo-600">{student.studentId}</td>
+                      <td className="py-3 px-4 font-semibold text-slate-800">{student.name}</td>
+                      <td className="py-3 px-4"><span className="bg-slate-100 text-slate-700 px-2.5 py-1 rounded-lg text-xs font-bold">{student.period}</span></td>
+                      <td className="py-3 px-4 text-right whitespace-nowrap">
+                        <button onClick={() => { setEditingStudentId(student.studentId); setEditName(student.name); setEditPeriod(student.period); }} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg mr-1" title="Edit Student"><Edit2 size={16} /></button>
+                        <button onClick={() => deleteStudentFromRoster(student.studentId)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg" title="Delete Student"><Trash2 size={16} /></button>
+                      </td>
+                    </tr>
+                  )
                 ))}
               </tbody>
             </table>
