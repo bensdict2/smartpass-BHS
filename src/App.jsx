@@ -534,6 +534,44 @@ function TeacherDashboardView({ db, appId, user, setView }) {
     setSortConfig({ key, direction });
   };
 
+  // --- RESTORED DATA CONNECTIONS ---
+
+  // 1. Fetch Roster
+  useEffect(() => {
+    if (!teacherId || !db) return;
+    const rosterRef = collection(db, 'artifacts', appId, 'users', teacherId, 'roster');
+    const unsubscribe = onSnapshot(rosterRef, (snapshot) => {
+      setRoster(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => unsubscribe();
+  }, [teacherId, db, appId]);
+
+  // 2. Fetch Live Passes
+  useEffect(() => {
+    if (!teacherId || !db || !sessionCode) return;
+    const passesRef = collection(db, 'artifacts', appId, 'users', teacherId, 'sessions', sessionCode, 'passes');
+    const unsubscribe = onSnapshot(passesRef, (snapshot) => {
+      setPasses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => unsubscribe();
+  }, [teacherId, db, appId, sessionCode]);
+
+  // 3. Keep Teacher Profile updated in Public Directory
+  useEffect(() => {
+    if (!teacherId || !db) return;
+    const registerTeacherDir = async () => {
+      const dirRef = doc(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory', teacherId);
+      await setDoc(dirRef, { 
+        email: user.email || 'Teacher',
+        name: displayName || user.email || 'Teacher', 
+        updatedAt: Date.now() 
+      }, { merge: true });
+    };
+    registerTeacherDir();
+  }, [teacherId, db, appId, user, displayName]);
+  
+  // ---------------------------------
+
   useEffect(() => {
     if (!teacherId || !db) return;
     const periods = ['Period 1', 'Period 2', 'Period 3', 'Period 4'];
