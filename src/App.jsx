@@ -490,54 +490,9 @@ function TeacherDashboardView({ db, appId, user, setView }) {
   const [historicalPasses, setHistoricalPasses] = useState(null);
   const [isFetchingHistory, setIsFetchingHistory] = useState(false);
 
-  useEffect(() => {
-    if (!teacherId || !db) return;
-    
-    const registerTeacherDir = async () => {
-      if (!isMasterAdmin) {
-        const allowedRef = doc(db, 'artifacts', appId, 'public', 'data', 'allowedTeachers', user.email.toLowerCase());
-        const allowedSnap = await getDoc(allowedRef);
-        if (!allowedSnap.exists()) {
-          await signOut(auth);
-          setView('home');
-          return;
-        }
-      }
-
-      const dirRef = doc(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory', teacherId);
-      const dirSnap = await getDoc(dirRef);
-      const existingName = dirSnap.exists() ? (dirSnap.data().name || '') : '';
-      if (existingName && !displayName) {
-        setDisplayName(existingName);
-      }
-
-      await setDoc(dirRef, { 
-        email: user.email, 
-        name: displayName || existingName || user.email,
-        updatedAt: Date.now() 
-      }, { merge: true });
-    };
-    registerTeacherDir();
-
-    if (isMasterAdmin) {
-      const allowedRef = collection(db, 'artifacts', appId, 'public', 'data', 'allowedTeachers');
-      const unsubAdmin = onSnapshot(allowedRef, (snap) => {
-        setAllowedTeachers(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      });
-      return () => unsubAdmin();
-    }
-  }, [teacherId, db, appId, user, isMasterAdmin, setView, displayName]);
-
-  const handleDisplayNameChange = async (newVal) => {
-    setDisplayName(newVal);
-    if (!teacherId || !db) return;
-    const dirRef = doc(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory', teacherId);
-    await setDoc(dirRef, { 
-      email: user.email, 
-      name: newVal, 
-      updatedAt: Date.now() 
-    }, { merge: true });
-  };
+  const [manualStudentId, setManualStudentId] = useState('');
+  const [manualDestination, setManualDestination] = useState('');
+  const [isCreatingManualPass, setIsCreatingManualPass] = useState(false);
 
   useEffect(() => {
     if (!teacherId || !db) return;
@@ -758,6 +713,32 @@ function TeacherDashboardView({ db, appId, user, setView }) {
     } finally {
       setIsFetchingHistory(false);
     }
+  };
+
+  const handleManualPassSubmit = async (e) => {
+    e.preventDefault();
+    if (!manualStudentId || !manualDestination) return;
+    setIsCreatingManualPass(true);
+    
+    const student = roster.find(s => s.studentId === manualStudentId);
+    if (student) {
+      try {
+        const passesRef = collection(db, 'artifacts', appId, 'users', teacherId, 'sessions', sessionCode, 'passes');
+        await addDoc(passesRef, {
+          studentId: student.studentId,
+          studentName: student.name,
+          period: className,
+          destination: manualDestination,
+          status: 'approved', // Skips waiting list and goes straight to 'Currently Out'
+          timestamp: Date.now()
+        });
+        setManualStudentId('');
+        setManualDestination('');
+      } catch (err) {
+        console.error("Error creating manual pass:", err);
+      }
+    }
+    setIsCreatingManualPass(false);
   };
 
   const waitingPasses = passes.filter(p => p.status === 'waiting').sort((a, b) => b.timestamp - a.timestamp);
@@ -1067,6 +1048,48 @@ function TeacherDashboardView({ db, appId, user, setView }) {
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* MANUAL PASS TOOL */}
+          <div className="bg-slate-100 rounded-2xl p-4 border border-slate-200 shadow-inner flex flex-col sm:flex-row items-center gap-4 print:hidden">
+            <div className="flex items-center text-slate-700 font-bold whitespace-nowrap">
+              <Plus size={18} className="mr-1.5 text-indigo-600" /> Manual Pass
+            </div>
+            <form onSubmit={handleManualPassSubmit} className="flex-1 flex flex-col sm:flex-row gap-3 w-full">
+              <select 
+                value={manualStudentId} 
+                onChange={e => setManualStudentId(e.target.value)} 
+                className="flex-1 p-2.5 border border-slate-300 rounded-xl text-sm bg-white font-medium outline-none focus:ring-2 focus:ring-indigo-500"
+                required
+              >
+                <option value="">-- Select Student --</option>
+                {roster
+                  .filter(s => s.period === className)
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map(s => (
+                    <option key={s.studentId} value={s.studentId}>{s.name}</option>
+                  ))
+                }
+              </select>
+              <select 
+                value={manualDestination} 
+                onChange={e => setManualDestination(e.target.value)} 
+                className="flex-1 p-2.5 border border-slate-300 rounded-xl text-sm bg-white font-medium outline-none focus:ring-2 focus:ring-indigo-500"
+                required
+              >
+                <option value="">-- Select Destination --</option>
+                {Object.entries(DESTINATIONS).map(([key, dest]) => (
+                  <option key={key} value={key}>{dest.icon} {dest.label}</option>
+                ))}
+              </select>
+              <button 
+                type="submit" 
+                disabled={isCreatingManualPass || !manualStudentId || !manualDestination}
+                className="w-full sm:w-auto px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white font-bold rounded-xl text-sm shadow-sm transition-colors whitespace-nowrap"
+              >
+                {isCreatingManualPass ? 'Adding...' : 'Start Pass'}
+              </button>
+            </form>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
