@@ -514,6 +514,37 @@ function TeacherDashboardView({ db, appId, user, setView }) {
     await setDoc(dirRef, { name: newName, email: user?.email, updatedAt: Date.now() }, { merge: true });
   };
 
+  
+  // 1. Fetch Student Roster
+  useEffect(() => {
+    if (!teacherId || !db) return;
+    const rosterRef = collection(db, 'artifacts', appId, 'users', teacherId, 'roster');
+    const unsubscribe = onSnapshot(rosterRef, (snapshot) => {
+      setRoster(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => unsubscribe();
+  }, [teacherId, db, appId]);
+
+  // 2. Fetch Live Passes for Current Class
+  useEffect(() => {
+    if (!teacherId || !db || !sessionCode) return;
+    const passesRef = collection(db, 'artifacts', appId, 'users', teacherId, 'sessions', sessionCode, 'passes');
+    const unsubscribe = onSnapshot(passesRef, (snapshot) => {
+      setPasses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => unsubscribe();
+  }, [teacherId, db, appId, sessionCode]);
+
+  // 3. Fetch Allowed Teachers (Admin Only)
+  useEffect(() => {
+    if (!db || !isMasterAdmin) return;
+    const allowedRef = collection(db, 'artifacts', appId, 'public', 'data', 'allowedTeachers');
+    const unsubscribe = onSnapshot(allowedRef, (snapshot) => {
+      setAllowedTeachers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => unsubscribe();
+  }, [db, appId, isMasterAdmin]);
+
   useEffect(() => {
     if (!teacherId || !db) return;
     const periods = ['Period 1', 'Period 2', 'Period 3', 'Period 4'];
