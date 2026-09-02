@@ -17,7 +17,8 @@ import {
   Shield,
   Search,
   Upload,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Plus
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
@@ -496,21 +497,22 @@ function TeacherDashboardView({ db, appId, user, setView }) {
 
   useEffect(() => {
     if (!teacherId || !db) return;
-    const rosterRef = collection(db, 'artifacts', appId, 'users', teacherId, 'roster');
-    const unsubscribe = onSnapshot(rosterRef, (snapshot) => {
-      setRoster(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
-    return () => unsubscribe();
+    const fetchDir = async () => {
+      const dirRef = doc(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory', teacherId);
+      const snap = await getDoc(dirRef);
+      if (snap.exists() && snap.data().name) {
+        setDisplayName(snap.data().name);
+      }
+    };
+    fetchDir();
   }, [teacherId, db, appId]);
 
-  useEffect(() => {
-    if (!teacherId || !db || !sessionCode) return;
-    const passesRef = collection(db, 'artifacts', appId, 'users', teacherId, 'sessions', sessionCode, 'passes');
-    const unsubscribe = onSnapshot(passesRef, (snapshot) => {
-      setPasses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
-    return () => unsubscribe();
-  }, [teacherId, db, appId, sessionCode]);
+  const handleDisplayNameChange = async (newName) => {
+    setDisplayName(newName);
+    if (!teacherId || !db) return;
+    const dirRef = doc(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory', teacherId);
+    await setDoc(dirRef, { name: newName, email: user?.email, updatedAt: Date.now() }, { merge: true });
+  };
 
   useEffect(() => {
     if (!teacherId || !db) return;
@@ -729,7 +731,7 @@ function TeacherDashboardView({ db, appId, user, setView }) {
           studentName: student.name,
           period: className,
           destination: manualDestination,
-          status: 'approved', // Skips waiting list and goes straight to 'Currently Out'
+          status: 'waiting',
           timestamp: Date.now()
         });
         setManualStudentId('');
@@ -1078,21 +1080,21 @@ function TeacherDashboardView({ db, appId, user, setView }) {
                 required
               >
                 <option value="">-- Select Destination --</option>
-                {Object.entries(DESTINATIONS).map(([key, dest]) => (
-                  <option key={key} value={key}>{dest.icon} {dest.label}</option>
-                ))}
-              </select>
-              <button 
-                type="submit" 
-                disabled={isCreatingManualPass || !manualStudentId || !manualDestination}
-                className="w-full sm:w-auto px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white font-bold rounded-xl text-sm shadow-sm transition-colors whitespace-nowrap"
-              >
-                {isCreatingManualPass ? 'Adding...' : 'Start Pass'}
-              </button>
-            </form>
-          </div>
+            {Object.entries(DESTINATIONS).map(([key, dest]) => (
+              <option key={key} value={key}>{dest.icon} {dest.label}</option>
+            ))}
+          </select>
+          <button 
+            type="submit" 
+            disabled={isCreatingManualPass || !manualStudentId || !manualDestination}
+            className="w-full sm:w-auto px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white font-bold rounded-xl text-sm shadow-sm transition-colors whitespace-nowrap"
+          >
+            {isCreatingManualPass ? 'Adding...' : 'Add to Pending'}
+          </button>
+        </form>
+      </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-[45vh] lg:h-[60vh]">
               <div className="bg-amber-500 p-4 flex justify-between items-center text-white shrink-0">
                 <h2 className="text-lg font-bold flex items-center"><Clock size={18} className="mr-2" /> Pending Requests</h2>
