@@ -139,7 +139,7 @@ export default function App() {
 
       <main className="max-w-6xl mx-auto w-full p-6 flex-1 print:p-0 print:max-w-none print:w-full">
         {view === 'home' && <HomeView setView={setView} />}
-        {view === 'student' && <StudentPortalView db={db} appId={appId} />}
+        {view === 'student' && <StudentPortalView db={db} appId={appId} user={user} />}
         {view === 'teacher-auth' && <TeacherAuthView auth={auth} db={db} appId={appId} setView={setView} />}
         {view === 'teacher-dashboard' && <TeacherDashboardView db={db} appId={appId} user={user} setView={setView} />}
       </main>
@@ -244,7 +244,7 @@ function TeacherAuthView({ auth, db, appId, setView }) {
   );
 }
 
-function StudentPortalView({ db, appId }) {
+function StudentPortalView({ db, appId, user }) {
   const [teachers, setTeachers] = useState([]);
   const [selectedTeacherId, setSelectedTeacherId] = useState('');
   const [studentIdInput, setStudentIdInput] = useState('');
@@ -258,13 +258,15 @@ function StudentPortalView({ db, appId }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
+    if (!user) return; // Wait for the anonymous login to complete before fetching
+
     const teachersRef = collection(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory');
     const unsubscribe = onSnapshot(teachersRef, (snap) => {
       const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setTeachers(list);
     }, (err) => console.error("Error fetching teachers:", err));
     return () => unsubscribe();
-  }, [db, appId]);
+  }, [db, appId, user]);
 
   const handleStudentIdSubmit = async (e) => {
     e.preventDefault();
