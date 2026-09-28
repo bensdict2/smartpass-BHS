@@ -505,6 +505,8 @@ function TeacherDashboardView({ db, appId, user, setView }) {
   const [sortConfig, setSortConfig] = useState({ key: 'name', direction: 'asc' });
   const [periodFilter, setPeriodFilter] = useState('All');
 
+  const [passToPrint, setPassToPrint] = useState(null);
+
   const sortedAndFilteredRoster = React.useMemo(() => {
     let items = [...roster];
     
@@ -559,16 +561,33 @@ function TeacherDashboardView({ db, appId, user, setView }) {
   // 3. Keep Teacher Profile updated in Public Directory
   useEffect(() => {
     if (!teacherId || !db) return;
-    const registerTeacherDir = async () => {
+    const fetchAndRegister = async () => {
       const dirRef = doc(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory', teacherId);
+      const snap = await getDoc(dirRef);
+      
+      let currentName = user.email || 'Teacher';
+      if (snap.exists() && snap.data().name) {
+         currentName = snap.data().name;
+         setDisplayName(currentName);
+      }
+      
       await setDoc(dirRef, { 
         email: user.email || 'Teacher',
-        name: displayName || user.email || 'Teacher', 
+        name: currentName, 
         updatedAt: Date.now() 
       }, { merge: true });
     };
-    registerTeacherDir();
-  }, [teacherId, db, appId, user, displayName]);
+    fetchAndRegister();
+  }, [teacherId, db, appId, user]);
+
+  const saveDisplayName = async () => {
+    if (!teacherId || !db) return;
+    const dirRef = doc(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory', teacherId);
+    await setDoc(dirRef, { 
+      name: displayName || user.email || 'Teacher', 
+      updatedAt: Date.now() 
+    }, { merge: true });
+  };
   
   // ---------------------------------
 
@@ -589,6 +608,27 @@ function TeacherDashboardView({ db, appId, user, setView }) {
   const updatePassStatus = async (id, newStatus) => {
     const passRef = doc(db, 'artifacts', appId, 'users', teacherId, 'sessions', sessionCode, 'passes', id);
     await updateDoc(passRef, { status: newStatus, updatedAt: Date.now() });
+  };
+
+  const approveAndPrint = async (pass) => {
+    await updatePassStatus(pass.id, 'approved');
+    setPassToPrint(pass);
+    setTimeout(() => {
+      window.print();
+      setTimeout(() => {
+        setPassToPrint(null);
+      }, 500);
+    }, 200);
+  };
+
+  const handleNextStudent = async () => {
+    for (const p of activePasses) {
+      await updatePassStatus(p.id, 'returned');
+    }
+    if (waitingPasses.length > 0) {
+      const oldestWaiting = waitingPasses[waitingPasses.length - 1];
+      await approveAndPrint(oldestWaiting);
+    }
   };
 
   const deletePass = async (id) => {
@@ -830,7 +870,9 @@ function TeacherDashboardView({ db, appId, user, setView }) {
                   <input 
                       type="text" 
                       value={displayName}
-                      onChange={(e) => handleDisplayNameChange(e.target.value)}
+                      onChange={(e) => setDisplayName(e.target.value)}
+                      onBlur={saveDisplayName}
+                      onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
                       placeholder="Your Name (e.g. Mr. M)"
                       className="text-xl font-bold text-slate-800 bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:outline-none focus:border-indigo-500 transition-colors p-0 mr-2 w-48"
                   />
@@ -1223,8 +1265,9 @@ function TeacherDashboardView({ db, appId, user, setView }) {
                       <p className="text-slate-600 text-xs mt-0.5">{DESTINATIONS[pass.destination]?.icon} {DESTINATIONS[pass.destination]?.label}</p>
                     </div>
                     <div className="flex space-x-1.5">
-                      <button onClick={() => deletePass(pass.id)} className="p-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg"><XCircle size={20} /></button>
-                      <button onClick={() => updatePassStatus(pass.id, 'approved')} className="p-2 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-lg"><CheckCircle2 size={20} /></button>
+                      <button onClick={() => deletePass(pass.id)} className="p-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg" title="Deny"><XCircle size={20} /></button>
+                      <button onClick={() => updatePassStatus(pass.id, 'approved')} className="p-2 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-lg" title="Approve Digital Pass"><CheckCircle2 size={20} /></button>
+                      <button onClick={() => approveAndPrint(pass)} className="p-2 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg" title="Approve & Print Physical Pass"><Printer size={20} /></button>
                     </div>
                   </div>
                 ))}
@@ -1234,7 +1277,14 @@ function TeacherDashboardView({ db, appId, user, setView }) {
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-[45vh] lg:h-[60vh]">
               <div className="bg-emerald-500 p-4 flex justify-between items-center text-white shrink-0">
                 <h2 className="text-lg font-bold flex items-center"><ArrowRight size={18} className="mr-2" /> Currently Out</h2>
-                <span className="bg-emerald-600 px-2.5 py-0.5 rounded-full text-xs font-bold">{activePasses.length}</span>
+                <div className="flex items-center space-x-2">
+                  {activePasses.length > 0 && waitingPasses.length > 0 && (
+                    <button onClick={handleNextStudent} className="px-3 py-1 bg-white text-emerald-600 rounded-lg text-xs font-black shadow-sm hover:bg-emerald-50 flex items-center transition-transform hover:scale-105" title="Mark currently out as returned, and instantly print pass for the next waiting student">
+                      <Printer size={14} className="mr-1.5"/> Auto-Next
+                    </button>
+                  )}
+                  <span className="bg-emerald-600 px-2.5 py-0.5 rounded-full text-xs font-bold">{activePasses.length}</span>
+                </div>
               </div>
               <div className="p-4 flex-1 overflow-y-auto bg-slate-50/50 space-y-3">
                 {activePasses.map((pass) => (
@@ -1281,6 +1331,41 @@ function TeacherDashboardView({ db, appId, user, setView }) {
               <p>Master Admin Email is configured to: <strong>{MASTER_ADMIN_EMAIL}</strong></p>
             </div>
             <button type="button" onClick={() => setShowHelp(false)} className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-xl">Close</button>
+          </div>
+        </div>
+      )}
+
+      {/* PHYSICAL HALL PASS PRINT TEMPLATE */}
+      {passToPrint && (
+        <div className="fixed inset-0 bg-white z-[100] flex items-center justify-center p-8 print:block">
+          <div className="border-4 border-black p-8 rounded-3xl text-center w-full max-w-md shadow-2xl print:shadow-none print:border-2">
+            <div className="flex justify-center mb-4 print:hidden">
+              <Printer size={48} className="text-black animate-pulse" />
+            </div>
+            <h1 className="text-4xl font-black mb-2 uppercase tracking-widest text-black">Hall Pass</h1>
+            <div className="border-b-4 border-black mb-6 w-full"></div>
+            
+            <p className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-1">Student</p>
+            <h2 className="text-5xl font-extrabold mb-2 text-black">{passToPrint.studentName}</h2>
+            {passToPrint.studentId && <p className="text-xl font-mono mb-8 text-gray-600">ID: {passToPrint.studentId}</p>}
+            
+            <div className="bg-gray-100 print:bg-transparent print:border-4 print:border-black p-6 rounded-2xl mb-8">
+              <p className="text-sm font-bold uppercase text-gray-500 mb-3">Destination</p>
+              <p className="text-4xl font-black flex items-center justify-center text-black">
+                <span className="mr-3 text-5xl">{DESTINATIONS[passToPrint.destination]?.icon}</span> 
+                {DESTINATIONS[passToPrint.destination]?.label}
+              </p>
+            </div>
+            
+            <div className="flex justify-between text-sm font-bold mb-8 bg-black print:bg-white print:text-black print:border-2 print:border-black text-white p-4 rounded-xl uppercase tracking-wider">
+              <span>{new Date().toLocaleDateString()}</span>
+              <span>{new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+            </div>
+            
+            <div className="border-t-4 border-dashed border-black pt-6">
+              <p className="text-sm italic text-gray-500 font-bold">Authorized By</p>
+              <p className="text-2xl font-black mt-2 text-black uppercase">{displayName || user?.email || 'Teacher'}</p>
+            </div>
           </div>
         </div>
       )}
