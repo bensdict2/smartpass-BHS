@@ -607,7 +607,15 @@ function TeacherDashboardView({ db, appId, user, setView }) {
 
   const updatePassStatus = async (id, newStatus) => {
     const passRef = doc(db, 'artifacts', appId, 'users', teacherId, 'sessions', sessionCode, 'passes', id);
-    await updateDoc(passRef, { status: newStatus, updatedAt: Date.now() });
+    const updateData = { status: newStatus, updatedAt: Date.now() };
+    
+    if (newStatus === 'approved') {
+      updateData.approvedAt = Date.now();
+    } else if (newStatus === 'returned') {
+      updateData.returnedAt = Date.now();
+    }
+    
+    await updateDoc(passRef, updateData);
   };
 
   const approveAndPrint = async (pass) => {
@@ -965,8 +973,8 @@ function TeacherDashboardView({ db, appId, user, setView }) {
                               <td className="py-3 px-2 font-bold">{p.studentName} <span className="block text-xs text-slate-400 font-mono font-normal">{p.studentId}</span></td>
                               <td className="py-3 px-2">{DESTINATIONS[p.destination]?.label || p.destination}</td>
                               <td className="py-3 px-2 capitalize font-semibold">{p.status}</td>
-                              <td className="py-3 px-2">{new Date(p.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
-                              <td className="py-3 px-2">{p.updatedAt && p.status === 'returned' ? new Date(p.updatedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'N/A'}</td>
+                              <td className="py-3 px-2">{p.approvedAt ? new Date(p.approvedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : new Date(p.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
+                              <td className="py-3 px-2">{p.returnedAt ? new Date(p.returnedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : (p.updatedAt && p.status === 'returned' ? new Date(p.updatedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'N/A')}</td>
                            </tr>
                         ))
                      )}
