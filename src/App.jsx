@@ -93,18 +93,22 @@ export default function App() {
       try {
         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
           await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
         }
+        // Removed anonymous login to force real authentication!
       } catch (err) {
         console.error('Auth error:', err);
       }
     };
     initAuth();
 
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setLoading(false);
+    const unsubscribe = onAuthStateChanged(auth, async (u) => {
+      // If the user is anonymously logged in from before, sign them out to force Google Login
+      if (u && u.isAnonymous) {
+        await signOut(auth);
+      } else {
+        setUser(u);
+        setLoading(false);
+      }
     });
     return () => unsubscribe();
   }, []);
@@ -139,7 +143,7 @@ export default function App() {
 
       <main className="max-w-6xl mx-auto w-full p-6 flex-1 print:p-0 print:max-w-none print:w-full">
         {view === 'home' && <HomeView setView={setView} />}
-        {view === 'student' && <StudentPortalView db={db} appId={appId} user={user} />}
+        {view === 'student' && <StudentPortalView db={db} appId={appId} user={user} auth={auth} />}
         {view === 'teacher-auth' && <TeacherAuthView auth={auth} db={db} appId={appId} setView={setView} />}
         {view === 'teacher-dashboard' && <TeacherDashboardView db={db} appId={appId} user={user} setView={setView} />}
       </main>
@@ -244,7 +248,7 @@ function TeacherAuthView({ auth, db, appId, setView }) {
   );
 }
 
-function StudentPortalView({ db, appId, user }) {
+function StudentPortalView({ db, appId, user, auth }) {
   const [teachers, setTeachers] = useState([]);
   const [selectedTeacherId, setSelectedTeacherId] = useState('');
   const [studentIdInput, setStudentIdInput] = useState('');
@@ -256,9 +260,11 @@ function StudentPortalView({ db, appId, user }) {
   const [destination, setDestination] = useState('');
   const [activePass, setActivePass] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [loginError, setLoginError] = useState('');
 
   useEffect(() => {
-    if (!user) return; // Wait for the anonymous login to complete before fetching
+    if (!user || user.isAnonymous) return; // Wait for the real Google login
 
     const teachersRef = collection(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory');
     const unsubscribe = onSnapshot(teachersRef, (snap) => {
@@ -351,6 +357,50 @@ function StudentPortalView({ db, appId, user }) {
     return () => unsubscribe();
   }, [activePass?.id, selectedTeacherId, student, appId, db]);
 
+  const selectedTeacher = teachers.find(t => t.id === selectedTeacherId);
+  const teacherDisplayName = selectedTeacher?.name || selectedTeacher?.email || 'Teacher';
+
+  // NEW: Force Google Authentication for Students
+  if (!user || user.isAnonymous) {
+    const handleGoogleLogin = async () => {
+      setIsLoggingIn(true);
+      setLoginError('');
+      try {
+        const provider = new GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: 'select_account' });
+        await signInWithPopup(auth, provider);
+      } catch (err) {
+        setLoginError(err.message);
+        setIsLoggingIn(false);
+      }
+    };
+
+    return (
+      <div className="max-w-md mx-auto mt-12 bg-white p-8 rounded-2xl shadow-sm border border-slate-200 text-center animate-in zoom-in">
+        <div className="mx-auto bg-indigo-100 text-indigo-600 w-16 h-16 rounded-full flex items-center justify-center mb-4">
+          <GraduationCap size={32} />
+        </div>
+        <h2 className="text-2xl font-bold text-slate-800">Student Login</h2>
+        <p className="text-slate-500 mt-2 text-sm mb-6">Please sign in with your school Google account to connect to the live hall pass system.</p>
+
+        <button
+          onClick={handleGoogleLogin}
+          disabled={isLoggingIn}
+          className="w-full py-4 px-4 border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold rounded-xl transition-colors shadow-sm flex items-center justify-center space-x-2"
+        >
+          <svg className="w-5 h-5" viewBox="0 0 24 24">
+            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+          </svg>
+          <span>{isLoggingIn ? 'Connecting...' : 'Sign in with Google'}</span>
+        </button>
+        {loginError && <p className="text-red-500 text-xs mt-4">{loginError}</p>}
+      </div>
+    );
+  }
+
   if (activePass) {
     const isWaiting = activePass.status === 'waiting';
     return (
@@ -385,7 +435,7 @@ function StudentPortalView({ db, appId, user }) {
                   onClick={() => setSelectedTeacherId(t.id)}
                   className="w-full p-4 border border-slate-200 hover:border-indigo-500 rounded-xl text-left font-bold text-slate-800 flex justify-between items-center transition-all bg-slate-50 hover:bg-indigo-50/50"
                 >
-                  <span>{t.name || t.displayName || t.email || 'Teacher'}</span>
+                  <span>{t.name || t.email || 'Teacher'}</span>
                   <ArrowRight size={18} className="text-indigo-600" />
                 </button>
               ))
@@ -396,7 +446,7 @@ function StudentPortalView({ db, appId, user }) {
         <form onSubmit={handleStudentIdSubmit} className="space-y-6">
           <div className="text-center">
             <h2 className="text-2xl font-bold text-slate-800">Enter Student ID</h2>
-            <p className="text-slate-500 text-sm mt-1">Type your school ID number.</p>
+            <p className="text-slate-500 text-sm mt-1">{teacherDisplayName}</p>
           </div>
           <div>
             <input 
@@ -418,7 +468,7 @@ function StudentPortalView({ db, appId, user }) {
         <form onSubmit={handleCodeSubmit} className="space-y-6">
           <div className="text-center">
             <h2 className="text-2xl font-bold text-slate-800">Welcome, {student.name}!</h2>
-            <p className="text-slate-500 text-sm mt-1">Enter today's 4-digit class code for {student.period}.</p>
+            <p className="text-slate-500 text-sm mt-1">{teacherDisplayName} • {student.period}</p>
           </div>
           <div>
             <input 
@@ -437,7 +487,7 @@ function StudentPortalView({ db, appId, user }) {
         <form onSubmit={handleRequestPass} className="space-y-6">
           <div className="text-center">
             <h2 className="text-2xl font-bold text-slate-800">Where are you going?</h2>
-            <p className="text-slate-500 text-sm mt-1">{student.name} ({student.period})</p>
+            <p className="text-slate-500 text-sm mt-1">{student.name} • {teacherDisplayName}</p>
           </div>
           <div className="grid grid-cols-2 gap-3">
             {Object.entries(DESTINATIONS).map(([key, dest]) => (
@@ -490,6 +540,7 @@ function TeacherDashboardView({ db, appId, user, setView }) {
 
   const [showHelp, setShowHelp] = useState(false);
   const [displayName, setDisplayName] = useState('');
+  const [nameSaved, setNameSaved] = useState(false);
 
   const [reportDate, setReportDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [historicalPeriod, setHistoricalPeriod] = useState('Period 1');
@@ -567,15 +618,12 @@ function TeacherDashboardView({ db, appId, user, setView }) {
       const dirRef = doc(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory', teacherId);
       const snap = await getDoc(dirRef);
       
-      let currentName = user.email || 'Teacher';
       if (snap.exists() && snap.data().name) {
-         currentName = snap.data().name;
-         setDisplayName(currentName);
+         setDisplayName(snap.data().name);
       }
       
       await setDoc(dirRef, { 
         email: user.email || 'Teacher',
-        name: currentName, 
         updatedAt: Date.now() 
       }, { merge: true });
     };
@@ -586,9 +634,12 @@ function TeacherDashboardView({ db, appId, user, setView }) {
     if (!teacherId || !db) return;
     const dirRef = doc(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory', teacherId);
     await setDoc(dirRef, { 
-      name: displayName || user.email || 'Teacher', 
+      name: displayName.trim(), 
       updatedAt: Date.now() 
     }, { merge: true });
+    
+    setNameSaved(true);
+    setTimeout(() => setNameSaved(false), 2000);
   };
   
   // ---------------------------------
@@ -886,6 +937,7 @@ function TeacherDashboardView({ db, appId, user, setView }) {
                       placeholder="Your Name (e.g. Mr. M)"
                       className="text-xl font-bold text-slate-800 bg-transparent border-b border-dashed border-slate-300 hover:border-indigo-500 focus:outline-none focus:border-indigo-500 transition-colors p-0 mr-2 w-48"
                   />
+                  {nameSaved && <CheckCircle2 size={18} className="text-emerald-500 mr-2" />}
                   {isMasterAdmin && <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center"><Shield size={10} className="mr-1"/> Admin</span>}
               </div>
               <p className="text-xs text-slate-500">{user?.email}</p>
