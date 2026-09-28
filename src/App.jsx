@@ -556,7 +556,9 @@ function TeacherDashboardView({ db, appId, user, setView, auth }) {
   }, [teacherId, db, appId, sessionCode]);
 
   useEffect(() => {
-    if (!teacherId || !db) return;
+    // STRICT SAFEGUARD: Only register in the directory if they have a real email and are NOT anonymous
+    if (!teacherId || !db || !user?.email || user?.isAnonymous) return;
+    
     const fetchAndRegister = async () => {
       const dirRef = doc(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory', teacherId);
       const snap = await getDoc(dirRef);
@@ -564,7 +566,7 @@ function TeacherDashboardView({ db, appId, user, setView, auth }) {
          setDisplayName(snap.data().name);
       }
       await setDoc(dirRef, { 
-        email: user.email || 'Teacher',
+        email: user.email,
         updatedAt: Date.now() 
       }, { merge: true });
     };
