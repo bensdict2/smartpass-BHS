@@ -474,6 +474,7 @@ function TeacherDashboardView({ db, appId, user, setView, auth }) {
   const [periodPendingCounts, setPeriodPendingCounts] = useState({});
   const [roster, setRoster] = useState([]);
   const [allowedTeachers, setAllowedTeachers] = useState([]);
+  const [publicDirectory, setPublicDirectory] = useState([]);
   const [activeTab, setActiveTab] = useState('dashboard');
 
   const [newIdInput, setNewIdInput] = useState('');
@@ -599,7 +600,7 @@ function TeacherDashboardView({ db, appId, user, setView, auth }) {
   useEffect(() => {
     if (!isMasterAdmin || !db) return;
     const allowedRef = collection(db, 'artifacts', appId, 'public', 'data', 'allowedTeachers');
-    const unsubscribe = onSnapshot(allowedRef, (snapshot) => {
+    const unsubscribeAllowed = onSnapshot(allowedRef, (snapshot) => {
       let list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       // Ensure the master admin is always visible at the top of the list
       if (!list.some(t => t.email?.toLowerCase() === MASTER_ADMIN_EMAIL.toLowerCase())) {
@@ -607,7 +608,16 @@ function TeacherDashboardView({ db, appId, user, setView, auth }) {
       }
       setAllowedTeachers(list);
     });
-    return () => unsubscribe();
+
+    const dirRef = collection(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory');
+    const unsubscribeDir = onSnapshot(dirRef, (snapshot) => {
+      setPublicDirectory(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    return () => {
+      unsubscribeAllowed();
+      unsubscribeDir();
+    };
   }, [isMasterAdmin, db, appId]);
 
   const updatePassStatus = async (id, newStatus) => {
@@ -1006,6 +1016,42 @@ function TeacherDashboardView({ db, appId, user, setView, auth }) {
                         ) : (
                           <button onClick={() => handleRemoveAllowedTeacher(t.id)} className="px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg">Revoke Access</button>
                         )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="mt-12 pt-8 border-t border-slate-200">
+            <h2 className="text-xl font-bold text-slate-800 mb-2 flex items-center"><Trash2 size={20} className="mr-2 text-red-500"/> Student Dropdown Cleanup</h2>
+            <p className="text-slate-500 text-sm mb-4">These are the names currently visible to students. If you see old test accounts or "ghost" teachers here, remove them to hide them from the student view.</p>
+            <div className="overflow-x-auto rounded-xl border border-slate-100">
+              <table className="w-full text-left border-collapse min-w-[500px]">
+                <thead>
+                  <tr className="border-b border-slate-200 text-xs font-semibold text-slate-400 uppercase bg-slate-50">
+                    <th className="py-3 px-4">Display Name</th>
+                    <th className="py-3 px-4">Associated Email</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-sm">
+                  {publicDirectory.map(t => (
+                    <tr key={t.id} className="hover:bg-slate-50">
+                      <td className="py-3 px-4 font-bold text-slate-800">{t.name || 'No Name Set'}</td>
+                      <td className="py-3 px-4 text-slate-500">{t.email || 'Anonymous'}</td>
+                      <td className="py-3 px-4 text-right">
+                         <button 
+                           onClick={async () => {
+                             if(window.confirm('Remove this name from the student dropdown?')) {
+                               await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory', t.id));
+                             }
+                           }} 
+                           className="px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg"
+                         >
+                           Remove from App
+                         </button>
                       </td>
                     </tr>
                   ))}
