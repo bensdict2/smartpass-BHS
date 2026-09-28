@@ -596,6 +596,20 @@ function TeacherDashboardView({ db, appId, user, setView, auth }) {
     return () => unsubs.forEach(u => u());
   }, [teacherId, db, appId]);
 
+  useEffect(() => {
+    if (!isMasterAdmin || !db) return;
+    const allowedRef = collection(db, 'artifacts', appId, 'public', 'data', 'allowedTeachers');
+    const unsubscribe = onSnapshot(allowedRef, (snapshot) => {
+      let list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      // Ensure the master admin is always visible at the top of the list
+      if (!list.some(t => t.email?.toLowerCase() === MASTER_ADMIN_EMAIL.toLowerCase())) {
+        list.unshift({ id: 'master', email: MASTER_ADMIN_EMAIL });
+      }
+      setAllowedTeachers(list);
+    });
+    return () => unsubscribe();
+  }, [isMasterAdmin, db, appId]);
+
   const updatePassStatus = async (id, newStatus) => {
     const passRef = doc(db, 'artifacts', appId, 'users', teacherId, 'sessions', sessionCode, 'passes', id);
     const updateData = { status: newStatus, updatedAt: Date.now() };
