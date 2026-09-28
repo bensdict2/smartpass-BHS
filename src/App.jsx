@@ -508,6 +508,9 @@ function TeacherDashboardView({ db, appId, user, setView, auth }) {
   const [editName, setEditName] = useState('');
   const [editPeriod, setEditPeriod] = useState('Period 1');
 
+  const [editingDirId, setEditingDirId] = useState(null);
+  const [editDirName, setEditDirName] = useState('');
+
   const [sortConfig, setSortConfig] = useState({ key: 'name', direction: 'asc' });
   const [periodFilter, setPeriodFilter] = useState('All');
   const [passToPrint, setPassToPrint] = useState(null);
@@ -688,6 +691,16 @@ function TeacherDashboardView({ db, appId, user, setView, auth }) {
       setEditingStudentId(null);
     } catch (err) {
       console.error("Error updating student:", err);
+    }
+  };
+
+  const handleSaveDirEdit = async (dirId) => {
+    try {
+      const dirRef = doc(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory', dirId);
+      await setDoc(dirRef, { name: editDirName.trim(), updatedAt: Date.now() }, { merge: true });
+      setEditingDirId(null);
+    } catch (err) {
+      console.error("Error updating display name:", err);
     }
   };
 
@@ -1040,22 +1053,47 @@ function TeacherDashboardView({ db, appId, user, setView, auth }) {
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm">
                   {publicDirectory.map(t => (
-                    <tr key={t.id} className="hover:bg-slate-50">
-                      <td className="py-3 px-4 font-bold text-slate-800">{t.name || 'No Name Set'}</td>
-                      <td className="py-3 px-4 text-slate-500">{t.email || 'Anonymous'}</td>
-                      <td className="py-3 px-4 text-right">
-                         <button 
-                           onClick={async () => {
-                             if(window.confirm('Remove this name from the student dropdown?')) {
-                               await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory', t.id));
-                             }
-                           }} 
-                           className="px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg"
-                         >
-                           Remove from App
-                         </button>
-                      </td>
-                    </tr>
+                    editingDirId === t.id ? (
+                      <tr key={t.id} className="bg-indigo-50/50">
+                        <td className="py-3 px-4">
+                          <input 
+                            type="text" 
+                            value={editDirName} 
+                            onChange={e => setEditDirName(e.target.value)} 
+                            className="w-full p-1.5 border border-slate-300 rounded text-sm bg-white outline-none focus:border-indigo-500" 
+                            placeholder="e.g. Mr. Smith"
+                          />
+                        </td>
+                        <td className="py-3 px-4 text-slate-500">{t.email || 'Anonymous'}</td>
+                        <td className="py-3 px-4 text-right whitespace-nowrap">
+                          <button onClick={() => handleSaveDirEdit(t.id)} className="p-1.5 text-emerald-600 hover:bg-emerald-100 rounded-lg mr-1" title="Save Name"><CheckCircle2 size={18} /></button>
+                          <button onClick={() => setEditingDirId(null)} className="p-1.5 text-slate-400 hover:bg-slate-200 rounded-lg" title="Cancel"><XCircle size={18} /></button>
+                        </td>
+                      </tr>
+                    ) : (
+                      <tr key={t.id} className="hover:bg-slate-50">
+                        <td className="py-3 px-4 font-bold text-slate-800">{t.name || 'No Name Set'}</td>
+                        <td className="py-3 px-4 text-slate-500">{t.email || 'Anonymous'}</td>
+                        <td className="py-3 px-4 text-right flex justify-end items-center space-x-2">
+                           <button 
+                             onClick={() => { setEditingDirId(t.id); setEditDirName(t.name || ''); }} 
+                             className="px-3 py-1.5 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg"
+                           >
+                             Edit Name
+                           </button>
+                           <button 
+                             onClick={async () => {
+                               if(window.confirm('Remove this name from the student dropdown?')) {
+                                 await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'teachersDirectory', t.id));
+                               }
+                             }} 
+                             className="px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg"
+                           >
+                             Remove from App
+                           </button>
+                        </td>
+                      </tr>
+                    )
                   ))}
                 </tbody>
               </table>
