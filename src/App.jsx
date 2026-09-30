@@ -862,7 +862,7 @@ function TeacherDashboardView({ db, appId, user, setView, auth }) {
     setIsCreatingManualPass(false);
   };
 
-  const waitingPasses = passes.filter(p => p.status === 'waiting').sort((a, b) => b.timestamp - a.timestamp);
+  const waitingPasses = passes.filter(p => p.status === 'waiting').sort((a, b) => a.timestamp - b.timestamp);
   const activePasses = passes.filter(p => p.status === 'approved').sort((a, b) => b.timestamp - a.timestamp);
   const returnedPasses = passes.filter(p => p.status === 'returned').sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
@@ -1325,14 +1325,19 @@ function TeacherDashboardView({ db, appId, user, setView, auth }) {
                 <span className="bg-amber-600 px-2.5 py-0.5 rounded-full text-xs font-bold">{waitingPasses.length}</span>
               </div>
               <div className="p-4 flex-1 overflow-y-auto bg-slate-50/50 space-y-3">
-                {waitingPasses.map((pass) => (
+                {waitingPasses.map((pass, index) => (
                   <div key={pass.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
-                    <div>
-                      <h3 className="font-bold text-slate-800">{pass.studentName}</h3>
-                      <p className="text-slate-400 text-xs font-mono">ID: {pass.studentId}</p>
-                      <p className="text-slate-600 text-xs mt-0.5">{DESTINATIONS[pass.destination]?.icon} {DESTINATIONS[pass.destination]?.label}</p>
+                    <div className="flex items-center">
+                      <div className="bg-slate-100 text-slate-500 font-black text-lg w-10 h-10 rounded-full flex items-center justify-center mr-4 shrink-0 border border-slate-200 shadow-sm">
+                        {index + 1}
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-slate-800">{pass.studentName}</h3>
+                        <p className="text-slate-400 text-xs font-mono">ID: {pass.studentId}</p>
+                        <p className="text-slate-600 text-xs mt-0.5">{DESTINATIONS[pass.destination]?.icon} {DESTINATIONS[pass.destination]?.label}</p>
+                      </div>
                     </div>
-                    <div className="flex space-x-1.5">
+                    <div className="flex space-x-1.5 shrink-0">
                       <button onClick={() => deletePass(pass.id)} className="p-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg" title="Deny"><XCircle size={20} /></button>
                       <button onClick={() => updatePassStatus(pass.id, 'approved')} className="p-2 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-lg" title="Approve Digital Pass"><CheckCircle2 size={20} /></button>
                       <button onClick={() => approveAndPrint(pass)} className="p-2 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg" title="Approve & Print Physical Pass"><Printer size={20} /></button>
