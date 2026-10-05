@@ -255,6 +255,7 @@ function StudentPortalView({ db, appId, user }) {
   const [destination, setDestination] = useState('');
   const [activePass, setActivePass] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [queuePosition, setQueuePosition] = useState(null);
 
   useEffect(() => {
     // Wait for the invisible anonymous login to complete
@@ -350,6 +351,31 @@ function StudentPortalView({ db, appId, user }) {
     return () => unsubscribe();
   }, [activePass?.id, selectedTeacherId, student, appId, db]);
 
+  // Listen to the entire queue to calculate this student's exact place in line
+  useEffect(() => {
+    if (!activePass || activePass.status !== 'waiting' || !selectedTeacherId || !student) {
+      setQueuePosition(null);
+      return;
+    }
+
+    const periodCode = getDailyPeriodCode(student.period, selectedTeacherId);
+    const passesRef = collection(db, 'artifacts', appId, 'users', selectedTeacherId, 'sessions', periodCode, 'passes');
+    
+    const unsubscribeQueue = onSnapshot(passesRef, (snap) => {
+      // Get all passes, filter to only the waiting ones, and sort by oldest first (first come, first serve)
+      const waiting = snap.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter(p => p.status === 'waiting')
+        .sort((a, b) => a.timestamp - b.timestamp);
+        
+      // Find this student's index in that line (0-based, so we add 1)
+      const pos = waiting.findIndex(p => p.id === activePass.id);
+      setQueuePosition(pos !== -1 ? pos + 1 : null);
+    });
+
+    return () => unsubscribeQueue();
+  }, [activePass?.id, activePass?.status, selectedTeacherId, student, appId, db]);
+
   const selectedTeacher = teachers.find(t => t.id === selectedTeacherId);
   const teacherDisplayName = selectedTeacher?.name || selectedTeacher?.email || 'Teacher';
 
@@ -360,6 +386,13 @@ function StudentPortalView({ db, appId, user }) {
         <div className={`p-8 text-white ${isWaiting ? 'bg-amber-500' : 'bg-emerald-500'}`}>
           <h2 className="text-3xl font-bold mb-2">{isWaiting ? 'Waiting for Approval' : 'Pass Approved!'}</h2>
           <p className="text-white/80 font-medium text-lg">{isWaiting ? 'Keep this screen open.' : 'You may go to your destination.'}</p>
+          
+          {isWaiting && queuePosition && (
+            <div className="mt-6 inline-flex flex-col items-center justify-center p-4 bg-white/20 rounded-2xl border border-white/30 shadow-inner">
+              <span className="text-xs uppercase tracking-widest font-bold text-white/90 mb-1">Your Place in Line</span>
+              <span className="text-5xl font-black">{queuePosition}</span>
+            </div>
+          )}
         </div>
         <div className="p-8 space-y-4">
           <p className="text-2xl font-bold text-slate-800">{student.name}</p>
@@ -771,7 +804,7 @@ function TeacherDashboardView({ db, appId, user, setView, auth }) {
       const allowedRef = doc(db, 'artifacts', appId, 'public', 'data', 'allowedTeachers', cleanEmail);
       await setDoc(allowedRef, { email: cleanEmail, addedAt: Date.now() });
       setAdminMessage(`Successfully authorized ${cleanEmail}!`);
-      setNewAllowedEmail('');
+      newAllowedEmail('');
     } catch (err) {
       setAdminMessage(`Error: ${err.message}`);
     }
@@ -910,6 +943,7 @@ function TeacherDashboardView({ db, appId, user, setView, auth }) {
         </div>
       </header>
 
+      {}
       {activeTab === 'reports' ? (
         <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-8 animate-in zoom-in">
           <div className="border-b border-slate-100 pb-6 print:hidden">
@@ -1395,6 +1429,7 @@ function TeacherDashboardView({ db, appId, user, setView, auth }) {
         </div>
       )}
 
+      {}
       {showHelp && (
         <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm print:hidden">
           <div className="bg-white rounded-2xl p-8 max-w-lg w-full shadow-xl relative">
@@ -1408,6 +1443,7 @@ function TeacherDashboardView({ db, appId, user, setView, auth }) {
         </div>
       )}
 
+      {}
       {passToPrint && (
         <div className="fixed inset-0 bg-white z-[100] flex items-center justify-center p-8 print:block">
           <div className="border-4 border-black p-8 rounded-3xl text-center w-full max-w-md shadow-2xl print:shadow-none print:border-2">
