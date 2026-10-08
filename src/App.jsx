@@ -91,24 +91,52 @@ export default function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          // RESTORED: Anonymous login for students so they don't get blocked by school IT
-          await signInAnonymously(auth);
-        }
-      } catch (err) {
-        console.error('Auth error:', err);
-      }
-    };
-    initAuth();
-
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
-      setUser(u);
-      setLoading(false);
+      if (u) {
+        // If they are logged in as a teacher, verify their access and auto-route them
+        if (u.email && !u.isAnonymous) {
+          const isMaster = u.email.toLowerCase() === MASTER_ADMIN_EMAIL.toLowerCase();
+          let isAllowed = isMaster;
+          
+          if (!isMaster) {
+            try {
+              const allowedRef = doc(db, 'artifacts', appId, 'public', 'data', 'allowedTeachers', u.email.toLowerCase());
+              const allowedSnap = await getDoc(allowedRef);
+              isAllowed = allowedSnap.exists();
+            } catch (err) {
+              console.error("Auth check error:", err);
+            }
+          }
+
+          if (isAllowed) {
+            setUser(u);
+            // Auto-route back to dashboard if they were on the home screen
+            setView(prev => prev === 'home' ? 'teacher-dashboard' : prev);
+          } else {
+            // If their access was revoked, silently log them out
+            await signOut(auth);
+            return; 
+          }
+        } else {
+          // Standard student anonymous login restored
+          setUser(u);
+        }
+        setLoading(false);
+      } else {
+        // No saved session found, so perform the invisible student login
+        try {
+          if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+            await signInWithCustomToken(auth, __initial_auth_token);
+          } else {
+            await signInAnonymously(auth);
+          }
+        } catch (err) {
+          console.error('Auth error:', err);
+          setLoading(false);
+        }
+      }
     });
+
     return () => unsubscribe();
   }, []);
 
