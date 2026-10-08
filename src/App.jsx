@@ -44,7 +44,9 @@ import {
   deleteDoc, 
   doc,
   getDoc,
-  getDocs 
+  getDocs,
+  query,
+  where
 } from 'firebase/firestore';
 
 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
@@ -289,12 +291,34 @@ function StudentPortalView({ db, appId, user }) {
     }
   };
 
-  const handleCodeSubmit = (e) => {
+  const handleCodeSubmit = async (e) => {
     e.preventDefault();
     if (!student) return;
     const periodCode = getDailyPeriodCode(student.period, selectedTeacherId);
 
     if (accessCode === periodCode) {
+      try {
+        // Check if this student already has an active or waiting pass for this session
+        const passesRef = collection(db, 'artifacts', appId, 'users', selectedTeacherId, 'sessions', periodCode, 'passes');
+        const q = query(passesRef, where("studentId", "==", student.studentId));
+        const snap = await getDocs(q);
+        
+        let existingPass = null;
+        snap.forEach(docSnap => {
+          const data = docSnap.data();
+          if (data.status === 'waiting' || data.status === 'approved') {
+            existingPass = { id: docSnap.id, destination: data.destination, status: data.status };
+          }
+        });
+
+        // If they have an active pass, instantly restore it to their screen
+        if (existingPass) {
+          setActivePass(existingPass);
+        }
+      } catch (err) {
+        console.error("Error checking for existing pass:", err);
+      }
+
       setIsUnlocked(true);
       setCodeError(false);
     } else {
